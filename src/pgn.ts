@@ -7,8 +7,9 @@
  * after it); a game lost on time ends "time forfeit", one whose clocks disagreed "unterminated" and an aborted one
  * "abandoned" (both with "*").
  *
- * Players are "?", the standard's unknown, until a later version knows their names. A game from Chess 1.0.2 has no
- * start date, so its Date is "????.??.??".
+ * White and Black are the players' names in a chat (this side's own, the contact's from its hello, both cleaned and
+ * escaped here), or "?", the standard's unknown, without one. A game from Chess 1.0.2 has no start date, so its Date
+ * is "????.??.??".
  */
 import { clkText } from "./clock.ts";
 import type { ChessController } from "./game.ts";
@@ -82,12 +83,16 @@ export function toPgn(game: PgnGame): string {
 /** The PGN of the game a controller holds: its moves, its result ("*" while it goes on), its date and opening. */
 export function pgnOfGame(game: Pick<ChessController, "record" | "view" | "startDate"> & Partial<Pick<ChessController, "clockRecord">>): string {
   const record = game.record();
-  const end = game.view().end;
+  const view = game.view();
+  const end = view.end;
   const clocks = game.clockRecord?.();
+  const nameOf = (colour: "w" | "b") => (view.me ? (colour === view.me ? view.ownName : view.peerName) : undefined);
   return toPgn({
     sans: record.sans,
     result: end?.result ?? "*",
     date: game.startDate(),
+    white: nameOf("w"),
+    black: nameOf("b"),
     opening: openingOf(record.fens.slice(1)),
     timeControl: clocks ? tcText(clocks.tc) : undefined,
     clocks: clocks?.k,

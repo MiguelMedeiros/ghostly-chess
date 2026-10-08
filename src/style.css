@@ -76,6 +76,13 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .dot.w { background: #fff; }
 .dot.b { background: #262626; }
 .dot.unknown { border-style: dashed; }
+/* A known name: the disc grows to hold its initials, dark on white, light on black. */
+.dot:not(:empty) {
+  display: grid; place-items: center; width: 22px; height: 22px; overflow: hidden;
+  font-size: 10px; font-weight: 700; line-height: 1; color: #262626; white-space: nowrap;
+}
+.dot.b:not(:empty) { color: #fff; }
+.dot.unknown:not(:empty) { color: var(--muted); }
 .strip.to-move .dot { box-shadow: 0 0 0 2px var(--accent); }
 /* The clocks: at the strip's end, the running one dark on light (light on dark), red under the low-time mark. */
 .strip .clock {

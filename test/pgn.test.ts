@@ -37,6 +37,20 @@ describe("PGN", () => {
     expect(pgn.trimEnd().endsWith("1-0")).toBe(true);
   });
 
+  it("names the players in White and Black, quotes and backslashes escaped, and '?' without a name", () => {
+    const pgn = toPgn({ sans: ["e4"], result: "*", white: 'Ana "the rook"', black: "C:\\Bob\\" });
+    expect(pgn).toContain('[White "Ana \\"the rook\\""]');
+    expect(pgn).toContain('[Black "C:\\\\Bob\\\\"]');
+    expect(toPgn({ sans: [], result: "*", white: "Ana" })).toContain('[Black "?"]');
+    // From a game: this side's own name for its colour, the contact's for the other.
+    const view = (me: "w" | "b" | undefined) => ({ me, ownName: 'A"\\', peerName: "Bob" });
+    const game = (me: "w" | "b" | undefined) => ({ record: () => ({ sans: [], fens: [] }), view: () => view(me), startDate: () => undefined }) as unknown as Parameters<typeof pgnOfGame>[0];
+    expect(pgnOfGame(game("b"))).toContain('[White "Bob"]\n[Black "A\\"\\\\"]');
+    expect(pgnOfGame(game("w"))).toContain('[White "A\\"\\\\"]\n[Black "Bob"]');
+    // Alone (no colour of one's own): no names.
+    expect(pgnOfGame(game(undefined))).toContain('[White "?"]\n[Black "?"]');
+  });
+
   it("wraps the movetext at 80 columns without breaking a token", () => {
     const tokens = Array.from({ length: 60 }, (_, i) => (i % 3 === 0 ? `${i / 3 + 1}.` : "Nxf7+"));
     const text = wrap(tokens);

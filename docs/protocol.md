@@ -64,7 +64,7 @@ result).
 
 Every 2.x reads every 2.x frame. What a side does with them is gated by the features both hellos name: `clock`,
 `takeback`, `rematch`, `abort` and `names`. A build names only what it implements (2.0.0 names none, 2.1.0 `clock`,
-2.2.0 also `takeback`, `rematch` and `abort`), so a later Chess never sends it a clock or a takeback it cannot run. The gate holds on receipt too: an invitation with `tc`
+2.2.0 also `takeback`, `rematch` and `abort`, 2.3.0 also `names`), so a later Chess never sends it a clock or a takeback it cannot run. The gate holds on receipt too: an invitation with `tc`
 without `clock` named by both, or with `r` without `rematch`, is shown but cannot be accepted (Accept is off, with
 the reason), and a sync's `time` end needs `clock`, its `aborted` end `abort`.
 
@@ -224,6 +224,26 @@ that does not name `abort`, Resign stays.
 Local, with no frame and no feature: one move queued on the contact's turn and played, checked, timed and sent as an
 ordinary move as soon as the contact's move arrives, if it is legal then; otherwise dropped, with nothing sent. A
 pawn's premove to the last rank is a queen.
+
+## Names (the `names` feature, Chess 2.3.0)
+
+The client gives an app only the person's own display name in this chat (`context().name`, with the manifest's `name`
+permission), never the contact's. So each side sends its own in its `hello` as `n`, and shows the contact's from the
+contact's `hello`. The contact already sees that name in the chat, so nothing new leaves the device.
+
+- A `hello` carries `n` only to a contact that shows names: its `hello` named `names`, or its version is 2.3.0 or
+  later (`NAMES_SINCE`), so a first hello and a reload carry it too. When the contact's hello names `names` but ours
+  went without `n` (its version said less), a `hello` with `n` and `re: 1` follows; it is never answered. A contact on
+  2.2.0 or older never receives `n`, and version 1 has no hello at all.
+- Without the permission, or with a name that cleans to nothing, no `n` goes, and the strips say "You" and
+  "Your contact".
+- Cleaning, the same before sending and again on receipt: NFC, then no control or format characters (Unicode Cc and
+  Cf: bidi overrides and isolates, zero-width characters; a lone surrogate too), whitespace collapsed to one space,
+  trimmed, and cut to 48 code points without splitting a surrogate pair. A raw `n` over 48 code points refuses the
+  hello, as before.
+- The name is shown with `textContent` only: in the player strips, beside a disc with its initials (there is no avatar
+  API), in the announcement of the contact's moves, and in the PGN's White and Black tags (escaped there). The
+  contact's name is used only while both hellos name `names`, and it stays while the contact's Chess is closed.
 
 ## Clocks (the `clock` feature, Chess 2.1.0)
 

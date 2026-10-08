@@ -51,6 +51,8 @@ interface BrokerOptions {
   locale: string;
   /** Install the broker only in the sandboxed child frame. */
   childOnly: boolean;
+  /** The person's display name, as context() gives it with the `name` permission. */
+  displayName?: string;
 }
 
 /** Runs in the page (or the frame) before Chess: the test broker. */
@@ -70,7 +72,7 @@ function installBroker(options: BrokerOptions): void {
   };
   w.__setPeer = (version: string | null) => (peer = version === null ? null : { version });
   w.ghostly = {
-    context: async () => ({ version: options.version, inChat: options.inChat, peer, theme: "light", locale: options.locale }),
+    context: async () => ({ version: options.version, inChat: options.inChat, peer, theme: "light", locale: options.locale, ...(options.displayName === undefined ? {} : { name: options.displayName }) }),
     file: async () => new ArrayBuffer(0),
     storage: {
       get: async (key: string) => (store.has(key) ? JSON.parse(store.get(key)!) : undefined),
@@ -134,6 +136,8 @@ export async function openSide(
     version?: string;
     /** The page to load instead of the build (the published 1.0.2). */
     html?: string;
+    /** The person's display name in context() (the `name` permission); none by default. */
+    displayName?: string;
   },
 ): Promise<Side> {
   const { name, mode = "top", inChat = true, version = "2.0.0" } = options;
@@ -167,7 +171,7 @@ export async function openSide(
     }, relay.latency);
     return true;
   });
-  await page.addInitScript(installBroker, { name, version, inChat, locale: options.locale ?? "en", childOnly: mode === "frame" } satisfies BrokerOptions);
+  await page.addInitScript(installBroker, { name, version, inChat, locale: options.locale ?? "en", childOnly: mode === "frame", displayName: options.displayName } satisfies BrokerOptions);
   for (const script of options.init ?? []) await page.addInitScript(script);
   sides.set(name, side);
   await page.goto(`${ORIGIN}/index.html`);
