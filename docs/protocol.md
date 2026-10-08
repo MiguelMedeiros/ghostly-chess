@@ -57,14 +57,14 @@ Version 2 keeps every kind above, and adds fields and kinds:
 | `sync` | `g`, `s`, `m`, `x?`, `tc?`, `r?`, `c?`, `tb?`, `d?` | Adds the terms (to re-derive the id), `c` = [white ms, black ms] after the last ply, `tb` = the takeback epoch, `d` = [colour, n], the standing draw offer and the ply it stands for |
 | `resign` | `g` | Unchanged |
 | `draw` | `g`, `o`, `n` | `n` = the ply count the offer stands for (required) |
-| `takeback` (new) | `g`, `n`, `o` | `o` = `"ask"`, `"accept"` or `"decline"`; `n` = the ply count after undoing the asker's last move |
+| `takeback` (new) | `g`, `n`, `o`, `h?` | `o` = `"ask"`, `"accept"` or `"decline"`; `n` = the ply count after undoing the asker's last move; an ask's `h` (required) = the plies the asker held when it asked |
 
 Ends add `{"why": "time", "by": colour}`, `{"why": "aborted"}` (only before ply 2) and `{"why": "disputed"}` (no
 result).
 
 Every 2.x reads every 2.x frame. What a side does with them is gated by the features both hellos name: `clock`,
-`takeback`, `rematch`, `abort` and `names`. A build names only what it implements (2.0.0 names none, 2.1.0 `clock`), so a later
-Chess never sends it a clock or a takeback it cannot run. The gate holds on receipt too: an invitation with `tc`
+`takeback`, `rematch`, `abort` and `names`. A build names only what it implements (2.0.0 names none, 2.1.0 `clock`,
+2.2.0 also `takeback`, `rematch` and `abort`), so a later Chess never sends it a clock or a takeback it cannot run. The gate holds on receipt too: an invitation with `tc`
 without `clock` named by both, or with `r` without `rematch`, is shown but cannot be accepted (Accept is off, with
 the reason), and a sync's `time` end needs `clock`, its `aborted` end `abort`.
 
@@ -165,7 +165,65 @@ comes in a version 1 frame.
 
   Anything else is a bad message and changes nothing.
 
-Takebacks and rematches (`takeback`, `tb`, `r`) come with the features that use them.
+## Game flow (Chess 2.2.0)
+
+### Draw offers
+
+A `draw` offer names the ply count `n` it was made at; an `accept` or `decline` names the same `n`. With a contact
+whose hello names `takeback` (2.2.0 or later), an offer stands through its own side's next move and lapses when the
+other side moves: moving instead of answering declines it. A `sync`'s `d` = [offerer, n] is taken at this ply count,
+or one ply back when that ply is the offerer's own. A side offers once per own move. With an older contact, and in
+version 1, any move clears an offer, as in Chess 1.0.2, so the two sides never disagree about one.
+
+An accept may cross the offerer's next move. Its `n` is the offer's either way, so the offerer cannot tell from it
+whether the accepter saw that move: when it holds one ply more than `n`, its own, it does not end the game from the
+frame but sends its `sync`, and the accepter's `sync` (with `x` = agreed) decides. A `sync` with `agreed` is taken at
+the offer's ply count `n` with this side one ply ahead, its own: that ply is dropped (also a mate), as for a
+resignation, and both sides hold the same history.
+
+A side answers a `sync` with its own at most once a second for the same disagreement (the two ply counts and ends),
+so two sides that disagree never send syncs back and forth for ever.
+
+### Takebacks (the `takeback` feature)
+
+1. The asker sends `takeback {g, n, o: "ask", h}`, with `n` the ply count after undoing its last move (one ply back
+   when the contact has not replied, two when it has) and `h` the plies it holds. It keeps the ask as `q` until it is
+   answered, and after its own reload sends it again (with the same `h`) when both are open. When the contact's
+   Chess closes, the ask lapses on both sides. One ask per own move.
+2. The other side shows it only when `h` is its own ply count and `n` is the ply its contact's last move came from;
+   anything else is stale. Without `h`, a one-ply ask that crossed the contact's move would read as a two-ply ask
+   with the same `n`. A move by the other side lets the ask lapse, and an ask that lapsed or was declined is not shown
+   again. While its ask waits, the asker does not move, resign, abort, answer a draw offer or flag itself (its clock
+   runs, and the contact claims as usual, C7): each of those could cross the accept. When both ask at once, the ask
+   with the smaller `n` stands and the other lapses, on both sides alike.
+3. `decline` changes nothing. `accept`: both sides cut the moves to `n` plies and keep `k` for them, so both clocks
+   are as they were after ply n-1. The epoch `tb` goes up by one. The asker is to move: its turn starts at the accept
+   (`tw`), and so does the other side's bound on it (`ts`, C4). A clamp on a ply taken back goes with it (`ko`, C5).
+4. The `sync` carries `tb`. A `sync` with `tb` one lower is the asker that missed the accept (it closed): it gets the
+   accept again, with a `sync`, at most once a second; the bound on the asker (`ts`, C4) moves only on the first such
+   answer in an epoch, so a replayed `sync` cannot hold it. Likewise a `sync` lacking this side's last ply moves `ts`
+   once per ply. One with a higher `tb` is applied only by a side that holds the matching ask `q` (its
+   history cut at `q` is the sync's); anything else is out of step.
+
+### Rematches (the `rematch` feature)
+
+After a game ends, a side may send a `seek` with `r` = that game's id and the same `tc`. The other side shows
+"Rematch? (5 | 0)" with Accept and Decline, and declines a rematch of a game it does not hold as its last one (`prev`)
+or with another time control. Colours swap: deal2 gives each side the opposite of its colour in game `r`. Two
+rematch seeks at once have the same terms, so each is the other's acceptance, and they make one game. A side has one
+invitation open at a time.
+
+### Abort (the `abort` feature)
+
+Before ply 2, either side may abort: it ends its game with `{why: "aborted"}` (no result, PGN `*`) and sends its
+`sync`. A move that crossed the abort is dropped by its mover, as a move that crossed a resignation is. With a contact
+that does not name `abort`, Resign stays.
+
+### Premoves
+
+Local, with no frame and no feature: one move queued on the contact's turn and played, checked, timed and sent as an
+ordinary move as soon as the contact's move arrives, if it is legal then; otherwise dropped, with nothing sent. A
+pawn's premove to the last rank is a queen.
 
 ## Clocks (the `clock` feature, Chess 2.1.0)
 
@@ -234,7 +292,7 @@ Per chat, in the broker's storage:
 
 | Key | Value |
 |---|---|
-| `game` | `{v: 2, g, me, s, dv, sd?, tc?, r?, m, k?, tw?, ts?, x?, d?, dn?, tb?, q?, pc?, fl?, ko?}`: `dv` is the deal (1 or 2). A 1.0.2 record (`v: 1`) reads as `dv: 1`, untimed, same game id. The clocks' part (`k`, `tw`, `ts`, `pc`, `fl`, `ko`) is written at turn boundaries, never on a clock tick |
+| `game` | `{v: 2, g, me, s, dv, sd?, tc?, r?, m, k?, tw?, ts?, x?, d?, dn?, tb?, q?, pc?, fl?, ko?, kj?}`: `dv` is the deal (1 or 2). A 1.0.2 record (`v: 1`) reads as `dv: 1`, untimed, same game id. The clocks' part (`k`, `tw`, `ts`, `pc`, `fl`, `ko`, and `kj`, the ply of the latest clamp) is written at turn boundaries, never on a clock tick. `tb` is the takeback epoch, `q` this side's takeback ask |
 | `flip` | `{v: 2, salt, dv, peer?, a, tc?, r?}`: the toss going, the deal it is for and the invitation's terms, so a reload sends the same seek. A 1.0.2 record (`v: 1`) reads as `dv: 1` |
 | `prev` | `{g, me, tc?}`: the last finished game, for a rematch's colours |
-| `prefs` | The settings |
+| `prefs` | The settings. From 2.2.0 the record carries `pm: 1`; `premove` is read only from such a record, since 2.0 and 2.1 wrote `premove: false` without a control for it |

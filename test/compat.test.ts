@@ -190,6 +190,39 @@ describe("today's Chess with Chess 1.0.2", () => {
     expect(old.notices).toEqual([]);
   });
 
+  it("sends 1.0.2 no takeback, abort or rematch, and keeps its rule that any move clears a draw offer", async () => {
+    const [a, b] = chatPair("1.0.2", "2.2.0");
+    const old = await open102(a);
+    const now = await openNew(b);
+    await settle(old, now);
+    const nowGame = now.game as ChessController;
+    // Before ply 2: Resign, not Abort.
+    expect(nowGame.view().canAbort).toBe(false);
+    await nowGame.abort();
+    await play(old, now, "e2e4", "e7e5");
+    expect(nowGame.view().canTakeback).toBe(false);
+    await nowGame.takeback();
+    // A draw offer, then a move by the offerer: 1.0.2 clears it, and so does today's Chess in version 1.
+    const offerer = nowGame.view().turn === nowGame.view().me ? now : old;
+    await (offerer.game as ChessController).offerDraw();
+    await settle(old, now);
+    await play(old, now, "g1f3");
+    expect(nowGame.view().drawOffer).toBeUndefined();
+    expect((old.game as Legacy).view().drawOffer).toBeUndefined();
+    await nowGame.resign();
+    await settle(old, now);
+    expect(nowGame.view().canRematch).toBe(true);
+    await nowGame.rematch();
+    await settle(old, now);
+    for (const frame of now.broker.sent as Record<string, unknown>[]) {
+      expect(frame.k, JSON.stringify(frame)).not.toBe("takeback");
+      expect("r" in frame || "tb" in frame || (frame.k === "sync" && JSON.stringify(frame.x ?? "").includes("aborted")), JSON.stringify(frame)).toBe(false);
+    }
+    expectOnly102Frames(now);
+    expect(old.notices).toEqual([]);
+    expect(now.notices).toEqual([]);
+  });
+
   it("continues a game 1.0.2 saved mid-way after one side updates: the record migrates and the game id stays", async () => {
     const [a, b] = chatPair("1.0.2", "1.0.2");
     const ana = await open102(a);

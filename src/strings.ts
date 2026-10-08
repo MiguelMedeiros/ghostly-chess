@@ -40,7 +40,6 @@ export const en = {
   accept: "Accept",
   decline: "Decline",
   resign: "Resign",
-  resignSure: "Resign? Press again",
   newGame: "New game",
   promoteTo: "Promote to",
   notice_invalidMove: "Ignored an invalid move from your contact.",
@@ -134,7 +133,7 @@ export const en = {
   invitedStatus: "Invitation sent",
   invitedAway: "Your invitation goes when your contact opens Chess.",
   invitesYou: "Your contact invites you: {terms}",
-  rematchYou: "Your contact asks for a rematch: {terms}",
+  rematchYou: "Rematch? ({terms})",
   canStillMove: "You can still make your move. It goes when they are back.",
   compatBanner: "Your contact has Chess {version}. Clocks, takebacks and rematches come when they update.",
   compatBannerOld: "Your contact has an older Chess. Clocks, takebacks and rematches come when they update.",
@@ -149,6 +148,16 @@ export const en = {
   peerSilent: "Your contact's Chess isn't answering",
   pendingClaim: "Their time is running out. It ends when their Chess is back.",
   say_secondsLeft: "{n} seconds left",
+  takeback: "Take back",
+  takebackAsked: "Takeback asked",
+  peerAsksTakeback: "Your contact asks to take back a move",
+  takenBack: "Move taken back",
+  notice_takebackDeclined: "Your contact declined the takeback.",
+  rematch: "Rematch",
+  resignAsk: "Resign this game?",
+  abort: "Abort",
+  set_premove: "Allow premoves",
+  premove: "premove",
 };
 
 export type Strings = typeof en;

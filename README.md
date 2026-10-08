@@ -48,6 +48,8 @@ versions, in the release's pull request or issue:
 - **Sounds:** after a tap inside the frame, moves (and, in a timed game, the low-time warning) are heard in the web runner (Chromium and Safari) and in Desktop's
   app window (WKWebView); nothing before it. On an iPhone's web app the ring/silent switch mutes Web Audio: a known
   limit, not worked around.
+- **Premoves on touch:** on the contact's turn a tap, tap (or a finger drag) queues a premove in blue, and a long
+  press on the board drops it (iOS Safari sends no `contextmenu`, so the long press is the board's own timer).
 - **Copy PGN:** in the web runner and in Desktop, Copy either copies or leaves the PGN selected with the hint; on an
   iPhone the PGN shows selected, ready to copy with a press and hold.
 
@@ -68,6 +70,7 @@ the same commit always gives the same bytes, so a build can be checked against a
 | `docs/protocol.md` | The protocol, for a bot or another client: both versions, the negotiation, the deals |
 | `src/ui.ts`, `src/style.css` | The page: player strips, the panel, the layout; the board themes are CSS tokens |
 | `src/board.ts` | The board: squares, highlights, coordinates, orientation, click and drag input, promotion |
+| `src/premove.ts` | Premoves: one move queued on the contact's turn, played when its move arrives if still legal |
 | `src/pieces.ts`, `src/generated/pieces.ts` | The piece sets: cburnett (SVG, built with `createElementNS`) and Classic (glyphs) |
 | `src/prefs.ts`, `src/settings.ts`, `src/dialog.ts` | The settings, per chat, and their dialog |
 | `src/announce.ts` | The live region that reads each move aloud, and the game's end |
@@ -96,7 +99,10 @@ the same commit always gives the same bytes, so a build can be checked against a
 Chess 2.0.0 speaks protocol 2 (invitations with terms, and room for clocks, takebacks and rematches) with a contact
 on 2.0.0 or later, and Chess 1.0.2's protocol, exactly, with an older one: the toss starts by itself and games are
 untimed. Chess 2.1.0 adds the clocks (the `clock` feature): timed games need it on both sides, so a contact on 2.0.0
-or 1.0.2 is offered untimed games only, with the update hint. A game begun on 1.0.2 goes on after either side updates. `PROTO2_SINCE` in `src/protocol.ts` is the first
+or 1.0.2 is offered untimed games only, with the update hint. Chess 2.2.0 adds takebacks, rematches with colours
+swapped and abort (the `takeback`, `rematch` and `abort` features), draw offers that stand through their own side's
+move, and premoves (local, no feature); a contact on 2.1.0 or older sees none of it, and those controls say why. A game
+begun on 1.0.2 goes on after either side updates. `PROTO2_SINCE` in `src/protocol.ts` is the first
 version that speaks protocol 2, and `test/version.test.ts` keeps the manifest at or above it. See
 [docs/protocol.md](docs/protocol.md).
 

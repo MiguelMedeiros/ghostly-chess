@@ -232,8 +232,9 @@ describe("input", () => {
     expect(sq(root, "e7").classList.contains("selected")).toBe(true);
   });
 
-  it("a press on the contact's turn does not swallow the next click", async () => {
+  it("a press on the contact's turn does not swallow the next click (premoves off)", async () => {
     const { white, black } = await startChat();
+    await black.prefs.set({ premove: false });
     const root = mount(black);
     pointer(sq(root, "e7"), "pointerdown", 0, 0);
     pointer(sq(root, "e7"), "pointerup", 0, 0);
@@ -242,8 +243,9 @@ describe("input", () => {
     expect(sq(root, "e7").classList.contains("selected")).toBe(true);
   });
 
-  it("selects nothing on the contact's turn", async () => {
+  it("selects nothing on the contact's turn with premoves off", async () => {
     const { black } = await startChat();
+    await black.prefs.set({ premove: false });
     const root = mount(black);
     pointer(sq(root, "e7"), "pointerdown", 0, 0);
     expect(sq(root, "e7").classList.contains("selected")).toBe(false);

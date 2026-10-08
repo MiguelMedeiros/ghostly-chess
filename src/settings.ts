@@ -1,18 +1,19 @@
 /**
- * The settings dialog: board colours, piece set, coordinates, auto-queen and legal-move dots. Each change is saved at
- * once (PrefsStore writes only what changed) and the board redraws from it. Settings are per chat, as the broker's
- * storage is; the dialog says so.
+ * The settings dialog: board colours, piece set, coordinates, auto-queen, legal-move dots and premoves. Each change
+ * is saved at once (PrefsStore writes only what changed) and the board redraws from it. Settings are per chat, as the
+ * broker's storage is; the dialog says so.
  */
 import { openDialog, type Dialog } from "./dialog.ts";
 import { PIECE_SETS } from "./pieces.ts";
 import { BOARD_THEMES, type Prefs, type PrefsStore } from "./prefs.ts";
 import type { Strings } from "./strings.ts";
 
-type Toggle = "coords" | "autoQueen" | "legal";
+type Toggle = "coords" | "autoQueen" | "legal" | "premove";
 const TOGGLES: [Toggle, keyof Strings][] = [
   ["coords", "set_coords"],
   ["autoQueen", "set_autoQueen"],
   ["legal", "set_legal"],
+  ["premove", "set_premove"],
 ];
 
 let groups = 0;

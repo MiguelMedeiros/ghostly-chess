@@ -14,8 +14,11 @@
  * Below the board, the board is sized from the panel's reserved height (NARROW_PANEL), never from what the panel holds
  * at the moment: a draw offer, a notice, the opening's name or the first move must not resize the board under a
  * finger. The reserve holds the status, the side, the opening, the move row, the review bar, one row of controls and
- * one notice line; the contact's draw offer floats over the move row and the controls instead of taking a row of its
- * own, and the game-over card sits on the board.
+ * one notice line; the contact's draw offer or takeback ask floats over the move row and the controls instead of
+ * taking a row of its own, and the game-over card (with Rematch in a chat) sits on the board.
+ *
+ * The controls: ↶ (take back, an icon so they stay one row), Offer draw, and Resign, which asks in a dialog; before
+ * ply 2, Abort replaces Resign. A control whose feature the contact's Chess lacks is off, its title saying why.
  *
  * Keys: Left/Right step the review and Home/End go to its ends when focus is outside the board (the board keeps the
  * arrows for its squares); PageUp/PageDown step it from anywhere. A dialog keeps its keys.
@@ -47,6 +50,7 @@ import { createGameOver, createMoveList, createReviewBar, moveWords, openPgnDial
 import { pgnOfGame } from "./pgn.ts";
 import { SVG_NS } from "./pieces.ts";
 import { PrefsStore } from "./prefs.ts";
+import { Premove } from "./premove.ts";
 import { Review } from "./review.ts";
 import { openSettings } from "./settings.ts";
 import { createSetup, invitationWords } from "./setup.ts";
@@ -65,9 +69,11 @@ const NOTICE_KEY: Record<Notice, StringKey> = {
   "send-failed": "notice_sendFailed",
   declined: "notice_declined",
   "clock-off": "notice_clockOff",
+  "taken-back": "takenBack",
+  "takeback-declined": "notice_takebackDeclined",
 };
 /** Notices that report what happened rather than a fault: they are announced politely, not as alerts. */
-const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game", "declined"]);
+const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game", "declined", "taken-back", "takeback-declined"]);
 
 /** The panel's width beside the board, and the smallest board side (24 px squares, WCAG 2.2's target size). */
 const PANEL_WIDTH = 240;
@@ -142,6 +148,23 @@ export function fitBoard(width: number, height: number, strips: number, panelBel
   return { side: floor8(Math.min(narrow, width - PAGE_PAD)), wide: false };
 }
 
+/**
+ * Why a control that needs a feature is off, or undefined when both sides named it: "Your contact needs to update
+ * Chess (they have 2.1.0)".
+ */
+export function featureHint(view: View, feature: string, t: Strings): string | undefined {
+  if (view.features.includes(feature)) return undefined;
+  return view.peerVersion ? fill(t.needsUpdate, { version: view.peerVersion }) : t.needsUpdateOld;
+}
+
+/** The ply index the standing draw offer's ½ shows at: the offerer's move it stands through, once that is made. */
+export function drawChip(view: View): number | undefined {
+  if (view.drawAt === undefined || !view.me) return undefined;
+  const offerer = view.drawOffer === "me" ? view.me : view.me === "w" ? "b" : "w";
+  const before = view.drawAt - 1;
+  return before >= 0 && (before % 2 === 0) === (offerer === "w") ? before : view.drawAt;
+}
+
 /** A move in words, for the live region: "Your contact: knight to f6, check". */
 export function sayMove(move: LastMove, who: string, view: View, t: Strings): string {
   return moveWords(move, who, t, view.inCheck, view.end?.why === "checkmate");
@@ -168,7 +191,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   }
   // Made before the page listens to the game: it checks its cursor against each change first.
   const review = new Review(game);
-  const board = new Board(review, t, prefs);
+  const premove = new Premove(game, () => prefs.get().premove);
+  const board = new Board(review, t, prefs, premove);
   play.append(top, board.element, bottom);
 
   const panel = el("div", "panel");
@@ -177,8 +201,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   const opening = el("p", "opening");
   const moves = createMoveList(t, (ply) => review.go(ply));
   const reviewBar = createReviewBar(t, review, () => toMoves());
-  // The contact's draw offer: a card of its own in the controls. Below the board it floats up over the controls and the
-  // move row instead of adding a row.
+  // The contact's draw offer or takeback ask: a card of its own in the controls. Below the board it floats up over the
+  // controls and the move row instead of adding a row.
   const offerCard = el("div", "offer-card");
   offerCard.setAttribute("role", "group");
   offerCard.hidden = true;
@@ -230,7 +254,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     target?.focus();
   };
   const copyPgn = (opener: HTMLElement) => openPgnDialog(app, pgnOfGame(game), t, opener);
-  const gameOver = createGameOver(t, { newGame: () => void game.newGame(), copyPgn, review: toMoves });
+  const gameOver = createGameOver(t, { newGame: () => void game.newGame(), rematch: () => void game.rematch(), copyPgn, review: toMoves });
   board.element.append(gameOver.element);
   const cards = createSetup(t, OWN_FEATURES, {
     invite: (tc) => void game.invite(tc),
@@ -241,11 +265,11 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
 
   const sounds = new Sounds({ enabled: () => prefs.get().sound, ...options.sound });
 
-  let resignArmed = false;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   let lastPlies = -1;
   let lastEnd = "";
   let lastInvitation = "";
+  let lastAsk = "";
   let seen: Seen | null = null;
   let shownPly = -1;
   let openingFor: { record: GameHistory; at: number; opening: Opening | undefined } | null = null;
@@ -333,6 +357,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const record = game.record();
     const at = review.ply();
     const boardHadFocus = board.element.contains(document.activeElement);
+    // No premove while reviewing, nor with the setting off.
+    if (review.reviewing() || !prefs.get().premove) premove.clear();
     board.render(shown);
     board.element.classList.toggle("reviewing", review.reviewing());
     const down = board.orientation();
@@ -342,7 +368,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     side.textContent = view.me ? (view.me === "w" ? t.youAreWhite : t.youAreBlack) : "";
     if (openingFor?.record !== record || openingFor.at !== at) openingFor = { record, at, opening: openingOf(record.fens.slice(1, MAX_PLY + 1), at) };
     renderOpening(opening, openingFor.opening, t);
-    moves.render(record, at, game.spent());
+    moves.render(record, at, game.spent(), drawChip(view));
     reviewBar.render(view.plies);
     renderClocks();
     runTicker(view);
@@ -355,7 +381,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     mute.setAttribute("aria-pressed", String(sound));
     // The contact's invitation takes the board's card place from the game-over card.
     const end = view.invitation ? undefined : view.end;
-    gameOver.render(end ? view : { ...view, end: undefined }, end ? `${view.plies}|${end.why}|${end.result}|${record.fens[1] ?? ""}` : "", boardHadFocus);
+    const rematch = view.canRematch ? { reason: featureHint(view, "rematch", t) } : undefined;
+    gameOver.render(end ? view : { ...view, end: undefined }, end ? `${view.plies}|${end.why}|${end.result}|${record.fens[1] ?? ""}` : "", boardHadFocus, rematch);
     const cardHadFocus = cards.setup.contains(document.activeElement) || cards.invitation.contains(document.activeElement);
     cards.render(view);
     // A card that hid under focus (Invite, Accept, Decline, or the contact's invitation replacing the panel) would drop
@@ -391,6 +418,10 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const invitation = view.invitation ? invitationWords(view.invitation, t) : "";
     if (invitation && invitation !== lastInvitation) announcer.say(invitation);
     lastInvitation = invitation;
+    // The contact's takeback ask or draw offer, when it comes: the card alone would go unheard too.
+    const ask = view.phase === "playing" ? (view.takeback === "peer" ? t.peerAsksTakeback : view.drawOffer === "peer" ? t.peerOffersDraw : "") : "";
+    if (ask && ask !== lastAsk) announcer.say(ask);
+    lastAsk = ask;
   }
 
   /** How the game ended, from this side: "You won: checkmate". */
@@ -421,6 +452,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
         return t.outOfStep;
       default:
         if (!view.peerOpen) return t.away;
+        // Our takeback ask waits: no move until it is answered, and the status says why.
+        if (view.takeback === "me") return `${t.takebackAsked}${check}`;
         return `${view.me === view.turn ? t.yourMove : t.theirMove}${check}`;
     }
   }
@@ -432,45 +465,72 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     return b;
   };
 
+  /** Resign asks first, in a dialog that keeps focus (Cancel has it, and Escape closes it). */
+  function askResign(opener: HTMLElement): void {
+    const dialog = openDialog(app, { title: t.resignAsk, closeLabel: t.close, opener });
+    dialog.element.classList.add("resign-dialog");
+    const row = el("div", "dialog-actions");
+    const confirm = button(t.resign, () => {
+      dialog.close();
+      void game.resign();
+    }, "danger resign-confirm");
+    row.append(button(t.cancel, () => dialog.close(), "resign-cancel"), confirm);
+    dialog.body.append(row);
+  }
+
   function renderActions(view: View): void {
     const out: HTMLElement[] = [];
-    const offered = view.phase === "playing" && view.drawOffer === "peer";
+    const playing = view.phase === "playing";
+    // The contact's takeback ask, else its draw offer: a card of its own, answered with Accept or Decline.
+    const kind = playing && view.takeback === "peer" ? "takeback" : playing && view.drawOffer === "peer" ? "draw" : "";
     const cardHadFocus = offerCard.contains(document.activeElement);
-    if (offered !== !offerCard.hidden) {
-      offerCard.replaceChildren(
-        ...(offered
-          ? [el("span", "offer", t.peerOffersDraw), button(t.accept, () => void game.answerDraw(true), "primary"), button(t.decline, () => void game.answerDraw(false))]
-          : []),
-      );
-      offerCard.hidden = !offered;
+    if ((offerCard.dataset.kind ?? "") !== kind) {
+      offerCard.dataset.kind = kind;
+      const answer = (yes: boolean) => void (kind === "takeback" ? game.answerTakeback(yes) : game.answerDraw(yes));
+      const words = kind === "takeback" ? t.peerAsksTakeback : t.peerOffersDraw;
+      offerCard.replaceChildren(...(kind ? [el("span", "offer", words), button(t.accept, () => answer(true), "primary"), button(t.decline, () => answer(false))] : []));
+      // The group is named by what it answers, so Accept and Decline are never heard alone.
+      if (kind) offerCard.setAttribute("aria-label", words);
+      else offerCard.removeAttribute("aria-label");
+      offerCard.hidden = !kind;
     }
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.newGame, () => void game.newGame()));
-    if (view.phase === "playing") {
-      const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw());
-      offer.disabled = view.drawOffer !== undefined || !view.peerOpen || Boolean(view.claiming);
+    if (playing) {
+      // Take back: an icon, so the controls stay one row; off with the reason when the contact's Chess has none.
+      const label = view.takeback === "me" ? t.takebackAsked : t.takeback;
+      const back = button("↶", () => void game.takeback(), "icon takeback-btn");
+      back.setAttribute("aria-label", label);
+      back.title = featureHint(view, "takeback", t) ?? label;
+      back.disabled = !view.canTakeback;
+      out.push(back);
+      const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw(), "draw-btn");
+      offer.disabled = !view.canDraw;
       out.push(offer);
-      const resign = button(resignArmed ? t.resignSure : t.resign, () => {
-        if (!resignArmed) {
-          resignArmed = true;
-          render();
-          actions.querySelector<HTMLButtonElement>(".danger")?.focus();
-          return;
-        }
-        resignArmed = false;
-        void game.resign();
-      }, "danger");
-      // Our claim on the contact's time waits for its answer: no resign and no draw until it comes.
-      resign.disabled = Boolean(view.claiming);
-      if (view.claiming) resignArmed = false;
-      out.push(resign);
-    } else resignArmed = false;
-    for (const b of offerCard.querySelectorAll("button")) b.disabled = Boolean(view.claiming);
+      // Before ply 2, Abort (no result) replaces Resign; Resign asks first. Our claim waiting: no resign (C7). Our
+      // takeback ask waiting: neither, nor an answer to a draw offer, which could cross the accept.
+      const waiting = Boolean(view.claiming) || view.takeback === "me";
+      if (view.canAbort) {
+        const abort = button(t.abort, () => void game.abort(), "danger abort-btn");
+        // At 320 px the label may end in an ellipsis: the title (and the accessible name) keep it whole.
+        abort.title = t.abort;
+        abort.disabled = waiting;
+        out.push(abort);
+      } else {
+        const resign = button(t.resign, (b) => askResign(b), "danger resign-btn");
+        resign.disabled = waiting;
+        out.push(resign);
+      }
+    }
+    for (const b of offerCard.querySelectorAll("button")) b.disabled = Boolean(view.claiming) || (offerCard.dataset.kind === "draw" && view.takeback === "me");
     if (view.phase === "over" || view.phase === "out-of-step") out.push(button(t.newGame, () => void game.newGame(), "primary"));
     if (view.end && view.phase !== "alone") out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
-    const hadFocus = actions.contains(document.activeElement) || (cardHadFocus && offerCard.hidden);
+    const focused = actions.contains(document.activeElement) ? (document.activeElement as HTMLElement).className : cardHadFocus && offerCard.hidden ? "?" : "";
     actions.replaceChildren(...out);
-    if (hadFocus) (actions.querySelector<HTMLButtonElement>(".danger") ?? actions.querySelector<HTMLButtonElement>("button"))?.focus();
+    if (!focused) return;
+    // Focus stays on the same control when it is still there and on, else the first one that is.
+    const live = [...actions.querySelectorAll<HTMLButtonElement>("button:not([disabled])")];
+    (live.find((b) => b.className === focused) ?? live[0])?.focus();
   }
 
   // ---------- keys ----------
@@ -497,6 +557,9 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
       case "End":
         review.live();
         break;
+      case "Escape":
+        board.dropPremove();
+        return;
       default:
         return;
     }
@@ -525,6 +588,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   window.addEventListener("resize", fit);
 
   const offChange = game.subscribe(render);
+  const offPremove = premove.subscribe(render);
   const offReview = review.subscribe(render);
   const offPrefs = prefs.subscribe((p) => {
     board.setPrefs(p);
@@ -544,6 +608,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   render();
   return () => {
     offChange();
+    offPremove();
+    premove.stop();
     offReview();
     offPrefs();
     offNotice();

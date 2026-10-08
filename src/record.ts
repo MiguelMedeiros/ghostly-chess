@@ -60,6 +60,8 @@ export interface SavedGame {
    * reports are read less this, so the two move lists differ by exactly the clamp, and only at the clamped ply.
    */
   ko?: number;
+  /** The ply of the latest clamp: a takeback past it drops ko with it. */
+  kj?: number;
 }
 
 /** A toss in progress, under "flip": the salt survives a reload, so the toss can finish with the same terms. */
@@ -126,6 +128,7 @@ export function readGame(value: unknown): SavedGame | null {
   for (const key of ["dn", "q", "pc", "fl"] as const) if (isInt(v[key], 0, MAX_PLIES)) game[key] = v[key] as number;
   if (isInt(v.tb, 0, MAX_MS)) game.tb = v.tb;
   if (game.tc && isInt(v.ko, 1, MAX_MS)) game.ko = v.ko;
+  if (game.ko && isInt(v.kj, 0, MAX_PLIES)) game.kj = v.kj;
   if (!game.d) delete game.dn;
   return game;
 }

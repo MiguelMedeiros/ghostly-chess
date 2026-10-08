@@ -20,7 +20,8 @@
  *   dispute  {g, n}                the claimed side's clock disagrees with the claim at n
  *   sync     {g, s, m, x?, tc?, r?, c?, tb?, d?}  plus the terms, both clocks, the takeback epoch and the standing draw offer
  *   draw     {g, o, n}             n = the ply count the offer stands for
- *   takeback {g, n, o}             o = "ask", "accept" or "decline"; n = the ply count after the undo
+ *   takeback {g, n, o, h?}         o = "ask", "accept" or "decline"; n = the ply count after the undo; an ask's h = the
+ *                                  plies the asker held when it asked
  * and three ends: {why: "time", by}, {why: "aborted"} and {why: "disputed"}.
  *
  * Everything from the peer is untrusted: parseMessage checks the size first, then every field's type, shape and
@@ -78,7 +79,7 @@ export type Message =
   | { k: "sync"; g: string; s: [string, string]; m: string[]; x?: GameEnd; tc?: TimeControl; r?: string; c?: [number, number]; tb?: number; d?: [Colour, number] }
   | { k: "resign"; g: string }
   | { k: "draw"; g: string; o: DrawOption; n?: number }
-  | { k: "takeback"; g: string; n: number; o: TakebackOption };
+  | { k: "takeback"; g: string; n: number; o: TakebackOption; h?: number };
 
 export type Kind = Message["k"];
 /** The kinds Chess 1.0.2 knows. */
@@ -398,6 +399,8 @@ function parseV2(v: Record<string, unknown>): Message | null {
     }
     case "takeback":
       if (!isGame(v.g) || !isInt(v.n, 0, MAX_PLIES - 1) || (v.o !== "ask" && v.o !== "accept" && v.o !== "decline")) return null;
+      // An ask names the plies its sender held (h), so a stale ask is never read as a newer one with the same n.
+      if (v.o === "ask") return isInt(v.h, 1, MAX_PLIES) ? { k: "takeback", g: v.g, n: v.n, o: v.o, h: v.h } : null;
       return { k: "takeback", g: v.g, n: v.n, o: v.o };
     default:
       return null;

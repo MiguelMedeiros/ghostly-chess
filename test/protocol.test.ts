@@ -56,7 +56,7 @@ describe("the message protocol", () => {
       { k: "ack", g, n: 1 },
       { k: "flag", g, n: 1, by: "w" },
       { k: "dispute", g, n: 1 },
-      { k: "takeback", g, n: 1, o: "ask" },
+      { k: "takeback", g, n: 1, o: "ask", h: 2 },
     ] as Message[]) expect(() => encodeV1(message), message.k).toThrow(/no version 1 form/);
     expect(() => encodeV1({ k: "sync", g, s: [newSalt(), newSalt()], m: [], x: { why: "aborted" } })).toThrow(/version 1/);
   });
@@ -88,7 +88,7 @@ describe("the message protocol", () => {
       { k: "resign", g },
       { k: "draw", g, o: "offer", n: 0 },
       { k: "draw", g, o: "accept", n: 12 },
-      { k: "takeback", g, n: 10, o: "ask" },
+      { k: "takeback", g, n: 10, o: "ask", h: 11 },
       { k: "takeback", g, n: 10, o: "decline" },
     ];
     const seen = new Set<string>();
@@ -131,8 +131,13 @@ describe("the message protocol", () => {
       { k: "dispute", g },
       { k: "draw", g, o: "offer" },
       { k: "draw", g, o: "offer", n: MAX_PLIES + 1 },
-      { k: "takeback", g, n: MAX_PLIES, o: "ask" },
+      { k: "takeback", g, n: MAX_PLIES, o: "ask", h: MAX_PLIES },
       { k: "takeback", g, n: 1, o: "maybe" },
+      // an ask names the plies its sender held: 1..2000
+      { k: "takeback", g, n: 1, o: "ask" },
+      { k: "takeback", g, n: 1, o: "ask", h: 0 },
+      { k: "takeback", g, n: 1, o: "ask", h: MAX_PLIES + 1 },
+      { k: "takeback", g, n: 1, o: "ask", h: "2" },
       { k: "sync", g, s, m: "", d: ["w", MAX_PLIES + 1] },
       { k: "sync", g, s, m: "", d: ["x", 0] },
       { k: "sync", g, s, m: "", tb: -1 },
@@ -292,6 +297,13 @@ describe("strings", () => {
     }
     expect(stringsFor("pt").yourMove).toBe("Sua vez");
     expect(stringsFor("ar").newGame).toBe("لعبة جديدة");
+  });
+
+  it("never names Abort as Cancel: one tap on Abort ends the game, Cancel closes a dialog", () => {
+    for (const language of LANGUAGES) {
+      const words = stringsFor(language);
+      expect(words.abort.trim().toLowerCase(), language).not.toBe(words.cancel.trim().toLowerCase());
+    }
   });
 });
 
