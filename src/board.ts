@@ -184,11 +184,17 @@ export class Board {
     const previous = this.plies;
     this.view = view;
     const bottom = this.orientation();
+    let refocus = false;
     if (bottom !== this.bottom) {
       this.bottom = bottom;
       layout(bottom).forEach((row, r) => this.rows[r].replaceChildren(...row.map((s) => this.squares.get(s)!)));
       // The keyboard starts on this side's king pawn: e7 when black is at the bottom, whenever the board turns there.
-      if (bottom === "b" && this.focus === "e2") this.focus = "e7";
+      // A focused e2 (focus handed to the board before the colours were known) hands it on, so it stays on the square
+      // that takes Tab.
+      if (bottom === "b" && this.focus === "e2") {
+        refocus = this.squares.get("e2") === document.activeElement;
+        this.focus = "e7";
+      }
       this.drawCoords();
     }
     this.element.classList.toggle("classic", this.prefs.pieces === "classic");
@@ -197,6 +203,7 @@ export class Board {
     if (this.selected && !view.canMove) this.selected = null;
     if (this.promotion && !view.canMove) this.closePromotion(false);
     this.drawSquares();
+    if (refocus) this.squares.get(this.focus)?.focus();
     this.grid.classList.toggle("locked", !view.canMove);
     this.plies = view.plies;
     if (previous >= 0 && view.plies === previous + 1 && view.lastMove && view.plies !== this.noSlide) this.slide(view.lastMove);

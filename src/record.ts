@@ -3,8 +3,8 @@
  *
  *   "game"  SavedGame v:2, the game in this chat. A v:1 record (Chess 1.0.2) reads as an untimed v:2 one with the same
  *           game id and colours (dv 1), so a game in progress survives the update.
- *   "flip"  SavedFlip v:2, the toss in progress: the salt, and the invitation's terms, so a reload re-sends the same
- *           seek and deal2 gets the same terms.
+ *   "flip"  SavedFlip v:2, the toss in progress: the salt, the deal it is for, and the invitation's terms, so a reload
+ *           re-sends the same seek and the deal gets the same terms. A v:1 record (Chess 1.0.2) is a deal 1 toss.
  *   "prev"  SavedPrev, the last finished game's {g, me, tc}: what a rematch is checked against.
  *
  * A record that does not read is dropped, as before: its required fields must be well formed, and a bad optional
@@ -61,6 +61,12 @@ export interface SavedGame {
 export interface SavedFlip {
   v: 2;
   salt: string;
+  /**
+   * The deal this toss is for: 1 (Chess 1.0.2's) or 2 (deal2). It follows the envelope of each seek sent until the
+   * peer's commitment is held, then it is fixed: a reveal or a sync for this toss is placed only by this deal, so a
+   * side can never pick the better of the two deals for the same salts.
+   */
+  dv: 1 | 2;
   /** The peer's commitment this salt was revealed against. */
   peer?: string;
   /** Game ids this toss gives up. */
@@ -118,15 +124,17 @@ export function readGame(value: unknown): SavedGame | null {
   return game;
 }
 
-/** The toss record, from storage: a v:1 one (Chess 1.0.2) reads as an untimed invitation. Null when it does not read. */
+/** The toss record, from storage: a v:1 one (Chess 1.0.2) reads as an untimed toss for deal 1. Null when it does not read. */
 export function readFlip(value: unknown): SavedFlip | null {
   if (!isObject(value) || (value.v !== 1 && value.v !== 2)) return null;
   const v = value;
   if (typeof v.salt !== "string" || !HEX64.test(v.salt)) return null;
   if (!Array.isArray(v.a) || v.a.length > MAX_ABANDON || !v.a.every(isGame)) return null;
-  const flip: SavedFlip = { v: 2, salt: v.salt, a: [...(v.a as string[])] };
+  const flip: SavedFlip = { v: 2, salt: v.salt, dv: 1, a: [...(v.a as string[])] };
   if (typeof v.peer === "string" && HEX64.test(v.peer)) flip.peer = v.peer;
   if (v.v === 2) {
+    if (v.dv !== 1 && v.dv !== 2) return null;
+    flip.dv = v.dv;
     if (v.tc !== undefined) {
       const tc = parseTc(v.tc);
       if (!tc) return null;

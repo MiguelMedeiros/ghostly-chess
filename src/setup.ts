@@ -6,7 +6,8 @@
  *   decides colours. A preset is enabled only when both sides can play it: this build has no clocks yet, so only
  *   Unlimited is; a preset the contact's Chess lacks says "Your contact needs to update Chess (they have X.Y.Z)".
  * - Invitation (view.invitation): "Your contact invites you: Unlimited", with Accept and Decline. Only the contact's
- *   latest proposal is shown.
+ *   latest proposal is shown. Terms this build cannot play (a clock, a rematch) keep the card, with Accept off and
+ *   the reason under it, as a preset's.
  *
  * Alone there is no setup: New game starts an unlimited game at once.
  */
@@ -49,6 +50,11 @@ export function termsWords(tc: TimeControl | undefined, t: Strings): string {
   return fill(tc[1] ? t.tc_wordsInc : t.tc_words, { kind: kindWord(kindOf(tc), t), min, inc: tc[1] });
 }
 
+/** The contact's invitation in words: "Your contact invites you: Unlimited". */
+export function invitationWords(invitation: Pick<NonNullable<View["invitation"]>, "tc" | "rematch">, t: Strings): string {
+  return fill(invitation.rematch ? t.rematchYou : t.invitesYou, { terms: termsWords(invitation.tc, t) });
+}
+
 /** A preset's short label on its button: "3 | 2", or "Unlimited". */
 export function presetLabel(preset: Preset, t: Strings): string {
   return preset.tc ? `${Math.round(preset.tc[0] / 60)} | ${preset.tc[1]}` : t.tc_unlimited;
@@ -66,6 +72,22 @@ export function presetState(tc: TimeControl | undefined, view: Pick<View, "mode"
   const known = view.mode === "v1" || view.mode === "v2";
   if (!known) return { enabled: false, reason: t.needsUpdateOld };
   return { enabled: false, reason: view.peerVersion ? fill(t.needsUpdate, { version: view.peerVersion }) : t.needsUpdateOld };
+}
+
+/** Why the contact's invitation cannot be accepted, or undefined when it can. */
+export function invitationReason(
+  invitation: NonNullable<View["invitation"]>,
+  view: Pick<View, "mode" | "features" | "peerVersion">,
+  own: readonly string[],
+  t: Strings,
+): string | undefined {
+  if (invitation.playable) return undefined;
+  if (invitation.tc) {
+    const reason = presetState(invitation.tc, view, own, t).reason;
+    if (reason) return reason;
+  }
+  if (!own.includes("rematch")) return t.comingSoon;
+  return view.peerVersion ? fill(t.needsUpdate, { version: view.peerVersion }) : t.needsUpdateOld;
 }
 
 export interface SetupActions {
@@ -131,6 +153,9 @@ export function createSetup(t: Strings, own: readonly string[], actions: SetupAc
   const words = el("p", "card-head invite-words");
   words.id = `invite-words-${id}`;
   invitation.setAttribute("aria-labelledby", words.id);
+  const why = el("p", "card-hint invite-reason");
+  why.id = `invite-reason-${id}`;
+  why.hidden = true;
   const row = el("div", "card-actions");
   const accept = el("button", "act primary accept-invite", t.accept);
   accept.type = "button";
@@ -139,7 +164,7 @@ export function createSetup(t: Strings, own: readonly string[], actions: SetupAc
   decline.type = "button";
   decline.addEventListener("click", () => actions.decline());
   row.append(accept, decline);
-  invitation.append(words, row);
+  invitation.append(words, why, row);
 
   return {
     setup,
@@ -150,7 +175,18 @@ export function createSetup(t: Strings, own: readonly string[], actions: SetupAc
       invitation.hidden = !incoming;
       if (incoming) {
         invitation.dir = dir;
-        words.textContent = fill(incoming.rematch ? t.rematchYou : t.invitesYou, { terms: termsWords(incoming.tc, t) });
+        words.textContent = invitationWords(incoming, t);
+        const reason = invitationReason(incoming, view, own, t);
+        accept.disabled = Boolean(reason);
+        why.textContent = reason ?? "";
+        why.hidden = !reason;
+        if (reason) {
+          accept.title = reason;
+          accept.setAttribute("aria-describedby", why.id);
+        } else {
+          accept.removeAttribute("title");
+          accept.removeAttribute("aria-describedby");
+        }
       }
       setup.hidden = view.phase !== "setup" || Boolean(incoming);
       if (setup.hidden) return;

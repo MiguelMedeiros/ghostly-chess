@@ -52,14 +52,23 @@ test("invites from the new-game panel, and the contact accepts the card", async 
   await expect(ana.frame.locator(".setup .preset-reason")).toHaveText("Coming in a later version of Chess");
   const bob = await openSide(browser, { name: "bob", sides });
   await expect(bob.frame.locator(".status")).toHaveText("Invite your contact to a game");
-  await ana.frame.locator(".setup .invite-btn").click();
+  // By keyboard: focus goes on with the cards instead of dropping to the page.
+  await ana.frame.locator(".setup .invite-btn").focus();
+  await ana.page.keyboard.press("Enter");
   await expect(ana.frame.locator(".status")).toHaveText("Invitation sent");
+  await expect(ana.frame.locator(".board [tabindex='0']")).toBeFocused();
   await expect(bob.frame.locator(".invitation .invite-words")).toHaveText("Your contact invites you: Unlimited");
-  await bob.frame.locator(".invitation .accept-invite").click();
+  // The status says the invitation, and it is announced.
+  await expect(bob.frame.locator(".status")).toHaveText("Your contact invites you: Unlimited");
+  await expect(bob.frame.locator(".announce")).toHaveText("Your contact invites you: Unlimited");
+  await bob.frame.locator(".invitation .accept-invite").focus();
+  await bob.page.keyboard.press("Enter");
   for (const side of [ana, bob]) {
     await expect(side.frame.locator(".side")).toHaveText(/^You play (white|black)$/);
     await expect(side.frame.locator(".setup")).toBeHidden();
     await expect(side.frame.locator(".invitation")).toBeHidden();
   }
+  // On the board, on the square that takes Tab (e7 when black is at the bottom).
+  await expect(bob.frame.locator(".board [tabindex='0']")).toBeFocused();
   for (const side of [ana, bob]) await side.context.close();
 });

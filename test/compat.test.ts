@@ -270,6 +270,81 @@ describe("today's Chess with Chess 1.0.2", () => {
     expectOnly102Frames(now);
   });
 
+  it("sends an invitation made in version 2 as 1.0.2's toss, for deal 1, when the contact comes back on 1.0.2", async () => {
+    const [a, b] = chatPair("2.0.0", "2.0.0");
+    const now = await openNew(a);
+    const later = await openNew(b);
+    await settle(now, later);
+    expect((now.game as ChessController).view().mode).toBe("v2");
+    await close(later, now);
+    await now.game.invite();
+    expect(JSON.parse(a.stored.get("flip")!).dv).toBe(2);
+    // The contact comes back on Chess 1.0.2 (another device, or it went back): the invitation goes as 1.0.2's seek.
+    b.version = "1.0.2";
+    const old = await open102(b);
+    await settle(now, old);
+    expect(now.game.view().phase).toBe("playing");
+    expect(old.game.view().phase).toBe("playing");
+    expect((saved(now) as SavedGame).dv).toBe(1);
+    expect(saved(now).g).toBe(saved(old).g);
+  });
+
+  it("finishes a 1.0.2 toss that ended on one side only, after both update", async () => {
+    const [a, b] = chatPair("1.0.2", "1.0.2");
+    const ana = await open102(a);
+    const bob = await open102(b);
+    await settle(ana, bob);
+    expect(ana.game.view().phase).toBe("playing");
+    // Bob's app closed before Ana's reveal reached it: he still has the toss, with Ana's commitment.
+    const bobSalt = (saved(bob) as LegacySavedGame).s[0];
+    const anaSeek = a.sent.find((m) => (m as { k: string }).k === "seek") as { c: string };
+    const game = saved(ana).g;
+    await close(ana, bob);
+    await close(bob);
+    b.stored.delete("game");
+    b.stored.set("flip", JSON.stringify({ v: 1, salt: bobSalt, a: [], peer: anaSeek.c }));
+    a.version = "2.0.0";
+    b.version = "2.0.0";
+    const ana2 = await openNew(a);
+    const bob2 = await openNew(b);
+    await settle(ana2, bob2);
+    // Bob adopts Ana's game by the deal his toss was for (1), although both speak version 2 now.
+    expect((saved(bob2) as SavedGame).dv).toBe(1);
+    for (const side of [ana2, bob2]) {
+      expect(side.game.view().phase).toBe("playing");
+      expect(side.notices).toEqual([]);
+      expect(saved(side).g).toBe(game);
+    }
+  });
+
+  it("ends with one history when 1.0.2 resigns while away, and today's Chess had moved while 1.0.2 was closed", async () => {
+    for (let tries = 0; tries < 20; tries++) {
+      const [a, b] = chatPair("1.0.2", "2.0.0");
+      const old = await open102(a);
+      const now = await openNew(b);
+      await settle(old, now);
+      if (now.game.view().me !== "b") continue; // today's Chess moves second here
+      await play(old, now, "e2e4");
+      await close(old, now);
+      expect(await now.game.move("e7", "e5")).toBe(true);
+      await close(now);
+      const old2 = await open102(a);
+      await settle(old2);
+      await (old2.game as Legacy).resign();
+      await settle(old2);
+      const now2 = await openNew(b);
+      await settle(old2, now2);
+      for (const side of [old2, now2]) {
+        expect(side.game.view().phase).toBe("over");
+        expect(side.game.view().end).toEqual({ result: "0-1", why: "resign" });
+        expect(side.game.view().plies).toBe(1);
+      }
+      expect(now2.notices).toEqual([]);
+      return;
+    }
+    throw new Error("no toss gave today's Chess black");
+  });
+
   it("ends in one game when 1.0.2 reports a 2.x version: the hello, then version 1 on its seek", async () => {
     // The client misreports 1.0.2 as 2.0.0: today's side opens with a hello, and 1.0.2 answers with its toss.
     const [a, b] = chatPair("2.0.0", "2.0.0");

@@ -65,13 +65,24 @@ describe("the game record", () => {
 });
 
 describe("the toss record", () => {
-  it("reads a 1.0.2 toss as an untimed invitation, and a v:2 one with its terms", () => {
+  it("reads a 1.0.2 toss as an untimed toss for deal 1, and a v:2 one with its deal and terms", () => {
     const salt = newSalt();
     const peer = commitment(newSalt());
-    expect(readFlip({ v: 1, salt, a: [g], peer })).toEqual({ v: 2, salt, a: [g], peer });
-    expect(readFlip({ v: 1, salt, a: [], tc: [300, 0] })).toEqual({ v: 2, salt, a: [] });
-    expect(readFlip({ v: 2, salt, a: [], tc: [180, 2], r: g })).toEqual({ v: 2, salt, a: [], tc: [180, 2], r: g });
-    for (const bad of [null, { v: 2, salt: "x", a: [] }, { v: 2, salt, a: "x" }, { v: 2, salt, a: [g, g, g] }, { v: 2, salt, a: [], tc: [1, 1] }, { v: 2, salt, a: [], r: "x" }, { v: 9, salt, a: [] }]) {
+    expect(readFlip({ v: 1, salt, a: [g], peer })).toEqual({ v: 2, salt, dv: 1, a: [g], peer });
+    expect(readFlip({ v: 1, salt, a: [], tc: [300, 0] })).toEqual({ v: 2, salt, dv: 1, a: [] });
+    expect(readFlip({ v: 2, salt, dv: 2, a: [], tc: [180, 2], r: g })).toEqual({ v: 2, salt, dv: 2, a: [], tc: [180, 2], r: g });
+    expect(readFlip({ v: 2, salt, dv: 1, a: [], peer })).toEqual({ v: 2, salt, dv: 1, a: [], peer });
+    for (const bad of [
+      null,
+      { v: 2, salt: "x", dv: 2, a: [] },
+      { v: 2, salt, dv: 2, a: "x" },
+      { v: 2, salt, dv: 2, a: [g, g, g] },
+      { v: 2, salt, dv: 2, a: [], tc: [1, 1] },
+      { v: 2, salt, dv: 2, a: [], r: "x" },
+      { v: 2, salt, a: [] },
+      { v: 2, salt, dv: 3, a: [] },
+      { v: 9, salt, dv: 2, a: [] },
+    ]) {
       expect(readFlip(bad), JSON.stringify(bad)).toBeNull();
     }
   });
@@ -80,7 +91,7 @@ describe("the toss record", () => {
     const broker = new MockBroker("ana", "2.0.0");
     const salt = newSalt();
     // A v:2 toss record with terms, as a later Chess with clocks writes it.
-    broker.stored.set("flip", JSON.stringify({ v: 2, salt, a: [], tc: [300, 0] }));
+    broker.stored.set("flip", JSON.stringify({ v: 2, salt, dv: 2, a: [], tc: [300, 0] }));
     const peer = new MockBroker("bob", "2.0.0");
     broker.peer = peer;
     peer.peer = broker;
@@ -102,7 +113,7 @@ describe("the toss record", () => {
 
   it("drops an invitation with terms 1.0.2 cannot play when the contact turns out to be 1.0.2", async () => {
     const broker = new MockBroker("ana", "2.0.0");
-    broker.stored.set("flip", JSON.stringify({ v: 2, salt: newSalt(), a: [], tc: [300, 0] }));
+    broker.stored.set("flip", JSON.stringify({ v: 2, salt: newSalt(), dv: 2, a: [], tc: [300, 0] }));
     const peer = new MockBroker("bob", "1.0.2");
     broker.peer = peer;
     peer.peer = broker;

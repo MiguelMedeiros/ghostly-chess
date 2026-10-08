@@ -187,7 +187,9 @@ describe("invitations in version 2", () => {
     for (const side of [ana, bob]) {
       expect(side.game.view().phase).toBe("setup");
       expect(side.game.view().mode).toBe("v2");
-      expect(kinds(side.broker)).toEqual(["hello"]);
+      // Each says hello, then answers the other's with re: 1. Neither answer is answered.
+      expect(kinds(side.broker)).toEqual(["hello", "hello"]);
+      expect(side.broker.sent.map((f) => (f as { re?: number }).re)).toEqual([undefined, 1]);
     }
   });
 
@@ -200,7 +202,7 @@ describe("invitations in version 2", () => {
     await settle(ana, bob);
     expect(ana.game.view().phase).toBe("invited");
     expect(ana.game.view().proposal).toEqual({ rematch: false });
-    expect(bob.game.view().invitation).toEqual({ rematch: false });
+    expect(bob.game.view().invitation).toEqual({ rematch: false, playable: true });
     expect(bob.game.view().phase).toBe("setup");
     await bob.game.acceptInvitation();
     await settle(ana, bob);
@@ -250,13 +252,13 @@ describe("invitations in version 2", () => {
     // Both proposals stand: Ana's own, waiting, and Bob's, shown.
     expect(ana.game.view().phase).toBe("invited");
     expect(ana.game.view().proposal).toEqual({ rematch: false });
-    expect(ana.game.view().invitation).toEqual({ tc: [300, 0], rematch: false });
+    expect(ana.game.view().invitation).toEqual({ tc: [300, 0], rematch: false, playable: false });
     // A seek with other terms never completes: no reveal went.
-    expect(kinds(a)).toEqual(["hello", "seek"]);
+    expect(kinds(a)).toEqual(["hello", "hello", "seek"]);
     // Bob seeks again and again: one card, the latest.
     for (const tc of [[600, 0], [180, 2]] as [number, number][]) a.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [], tc }));
     await settle(ana);
-    expect(ana.game.view().invitation).toEqual({ tc: [180, 2], rematch: false });
+    expect(ana.game.view().invitation).toEqual({ tc: [180, 2], rematch: false, playable: false });
     expect(ana.notices).toEqual([]);
     expect(a.stored.has("game")).toBe(false);
     expect(savedFlip(ana).tc).toBeUndefined();
@@ -279,7 +281,7 @@ describe("invitations in version 2", () => {
     expect(savedFlip(ana).salt).toBe(flip.salt);
     const bob = await open(b);
     await settle(ana, bob);
-    expect(bob.game.view().invitation).toEqual({ rematch: false });
+    expect(bob.game.view().invitation).toEqual({ rematch: false, playable: true });
     expect((a.sent.find((m) => (m as { k: string }).k === "seek") as { c: string }).c).toBe(commitment(flip.salt));
     await bob.game.acceptInvitation();
     await settle(ana, bob);
@@ -348,6 +350,154 @@ describe("invitations in version 2", () => {
     await settle(ana);
     expect(ana.notices).toEqual(["bad-message"]);
     expect(ana.game.view().invitation).toBeUndefined();
+  });
+});
+
+describe("one deal per toss", () => {
+  /** Ana (today's Chess) invites; a scripted contact accepts with its seek and holds its reveal. */
+  async function heldReveal(): Promise<{ ana: Side; sA: string; sB: string }> {
+    const [a, b] = chatPair();
+    const ana = await open(a);
+    b.launch();
+    await settle(ana);
+    a.inject(encodeMessage({ k: "hello", pv: 2, f: [] }));
+    await settle(ana);
+    await ana.game.invite();
+    const sB = newSalt();
+    a.inject(encodeMessage({ k: "seek", c: commitment(sB), a: [] }));
+    await settle(ana);
+    const reveal = a.sent.find((m) => (m as { k: string }).k === "reveal") as { s: string } | undefined;
+    expect(reveal).toBeDefined();
+    expect(savedFlip(ana).dv).toBe(2);
+    return { ana, sA: reveal!.s, sB };
+  }
+
+  it("starts no game from a version 1 sync of the same salts after a version 2 invitation: no side picks its colour", async () => {
+    const { ana, sA, sB } = await heldReveal();
+    // The contact has seen Ana's salt, and tries the version 1 deal of the same salts instead of revealing.
+    ana.broker.inject(encodeV1({ k: "sync", g: deal(sB, sA).g, s: [sB, sA], m: [] }));
+    await settle(ana);
+    expect(ana.broker.stored.has("game")).toBe(false);
+    expect(ana.game.view().phase).toBe("invited");
+    expect(ana.notices).toEqual(["bad-message"]);
+    // Nor in the version 2 envelope.
+    ana.broker.inject(encodeMessage({ k: "sync", g: deal(sB, sA).g, s: [sB, sA], m: [] }));
+    await settle(ana);
+    expect(ana.broker.stored.has("game")).toBe(false);
+    // The toss still ends, by the deal it is for.
+    ana.broker.inject(encodeMessage({ k: "reveal", s: sB, c: commitment(sA) }));
+    await settle(ana);
+    expect(saved(ana)).toMatchObject({ dv: 2, g: deal2(sA, sB, {}).g, me: deal2(sA, sB, {}).me });
+  });
+
+  it("takes a reveal by the deal the toss is for, whatever envelope it comes in", async () => {
+    const { ana, sA, sB } = await heldReveal();
+    ana.broker.inject(encodeV1({ k: "reveal", s: sB, c: commitment(sA) }));
+    await settle(ana);
+    expect(saved(ana)).toMatchObject({ dv: 2, g: deal2(sA, sB, {}).g });
+  });
+});
+
+describe("a side out of step in version 2", () => {
+  it("starts a new game after its storage is lost mid-game: New game, Invite, and the contact accepts", async () => {
+    const sides = await start();
+    await play(sides, "e2e4", "e7e5");
+    const { ana, bob } = sides;
+    const old = saved(bob).g;
+    ana.game.stop();
+    ana.broker.shutdown();
+    await settle(bob);
+    ana.broker.stored.clear();
+    const back = await open(ana.broker);
+    await settle(back, bob);
+    expect(back.game.view().phase).toBe("out-of-step");
+    await back.game.newGame();
+    await settle(back, bob);
+    expect(back.game.view().phase).toBe("setup");
+    await back.game.invite();
+    await settle(back, bob);
+    // The seek gives up the contact's game, so it shows as an invitation, not as a game to resync.
+    expect((back.broker.sent.filter((m) => (m as { k: string }).k === "seek").at(-1) as { a: string[] }).a).toEqual([old]);
+    expect(bob.game.view().invitation).toEqual({ rematch: false, playable: true });
+    await bob.game.acceptInvitation();
+    await settle(back, bob);
+    for (const side of [back, bob]) {
+      expect(side.game.view().phase).toBe("playing");
+      expect(side.game.view().plies).toBe(0);
+    }
+    expect(saved(back).g).toBe(saved(bob).g);
+    expect(saved(back).g).not.toBe(old);
+  });
+});
+
+describe("terms this build cannot play", () => {
+  it("shows a timed invitation from a contact with clocks, but never accepts it", async () => {
+    const [a, b] = chatPair();
+    const ana = await open(a);
+    b.launch();
+    await settle(ana);
+    a.inject(encodeMessage({ k: "hello", pv: 2, f: ["clock"] }));
+    await settle(ana);
+    a.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [], tc: [60, 0] }));
+    await settle(ana);
+    expect(ana.game.view().invitation).toEqual({ tc: [60, 0], rematch: false, playable: false });
+    const sent = a.sent.length;
+    await ana.game.acceptInvitation();
+    await settle(ana);
+    expect(a.sent.length).toBe(sent);
+    expect(a.stored.has("flip")).toBe(false);
+    expect(ana.game.view().phase).toBe("setup");
+    // Declining it still works.
+    await ana.game.declineInvitation();
+    await settle(ana);
+    expect(kinds(a).at(-1)).toBe("decline");
+  });
+
+  it("shows a rematch invitation from a contact with rematches, but never accepts it", async () => {
+    const sides = await start();
+    await sides.white.game.resign();
+    await settle(sides.white, sides.black);
+    const last = saved(sides.black).g;
+    const black = sides.black;
+    // The contact (white's side, scripted from here) names rematches and asks for one.
+    black.broker.inject(encodeMessage({ k: "hello", pv: 2, f: ["rematch"] }));
+    black.broker.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [last], r: last }));
+    await settle(black);
+    expect(black.game.view().invitation).toEqual({ r: last, rematch: true, playable: false });
+    const sent = black.broker.sent.length;
+    await black.game.acceptInvitation();
+    await settle(black);
+    expect(black.broker.sent.length).toBe(sent);
+    expect(black.broker.stored.has("flip")).toBe(false);
+  });
+});
+
+describe("a resignation and a move made while the contact was away", () => {
+  it("ends with one history: the resigner's, and the move it never saw is dropped", async () => {
+    const sides = await start();
+    await play(sides, "e2e4");
+    const { white, black } = sides;
+    // White closes; black moves while white is away, then closes.
+    white.game.stop();
+    white.broker.shutdown();
+    await settle(black);
+    expect(await black.game.move("e7", "e5")).toBe(true);
+    black.game.stop();
+    black.broker.shutdown();
+    // White opens while black is away and resigns at ply 1 (its board still says black to move).
+    const w = await open(white.broker);
+    await settle(w);
+    await w.game.resign();
+    await settle(w);
+    const b = await open(black.broker);
+    await settle(w, b);
+    for (const side of [w, b]) {
+      expect(side.game.view().phase).toBe("over");
+      expect(side.game.view().end).toEqual({ result: "0-1", why: "resign" });
+      expect(side.game.view().plies).toBe(1);
+      expect(side.notices).toEqual([]);
+    }
+    expect(saved(b).m).toEqual(["e2e4"]);
   });
 });
 

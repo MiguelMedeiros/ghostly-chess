@@ -20,7 +20,7 @@ describe("the negotiator", () => {
   it("speaks version 1 at once to 1.0.2, 1.2.0, an unparseable version and a missing one, with no hello", () => {
     for (const version of ["1.0.2", "1.2.0", "1.99.0", "2.0.0-rc.1", "dev", "", undefined]) {
       const n = new Negotiator(["clock"]);
-      expect(n.open(version), String(version)).toEqual({ sendHello: false, sendOpening: false });
+      expect(n.open(version), String(version)).toEqual({ sendHello: false, reply: false, sendOpening: false });
       expect(n.mode).toBe("v1");
       expect(n.envelope).toBe(1);
       expect(n.holding).toBe(false);
@@ -30,11 +30,12 @@ describe("the negotiator", () => {
 
   it("sends hello first to 2.0.0 and holds game frames until the peer's hello", () => {
     const n = new Negotiator(["clock", "takeback"]);
-    expect(n.open("2.0.0")).toEqual({ sendHello: true, sendOpening: false });
+    expect(n.open("2.0.0")).toEqual({ sendHello: true, reply: false, sendOpening: false });
     expect(n.mode).toBe("hello");
     expect(n.holding).toBe(true);
     expect(n.envelope).toBe(2);
-    expect(n.receive(2, "hello", { f: ["takeback", "names"], n: "Bob" })).toEqual({ handle: false, sendHello: false, sendOpening: true, changed: true });
+    // The peer's answer to ours: the opening goes, and the answer is not answered.
+    expect(n.receive(2, "hello", { f: ["takeback", "names"], n: "Bob", re: 1 })).toEqual({ handle: false, sendHello: false, sendOpening: true, changed: true });
     expect(n.mode).toBe("v2");
     expect(n.holding).toBe(false);
     expect(n.peerName).toBe("Bob");
@@ -72,15 +73,21 @@ describe("the negotiator", () => {
     for (const version of ["2.0.0", "1.0.2"]) {
       const n = new Negotiator(["clock"]);
       expect(n.receive(2, "hello", { f: ["clock"] })).toEqual({ handle: false, sendHello: false, sendOpening: false, changed: false });
-      expect(n.open(version), version).toEqual({ sendHello: true, sendOpening: true });
+      // Our hello goes as the answer to it.
+      expect(n.open(version), version).toEqual({ sendHello: true, reply: true, sendOpening: true });
       expect(n.mode).toBe("v2");
       expect(n.features).toEqual(["clock"]);
       // A close forgets an early hello.
       n.close();
       n.receive(2, "hello", { f: [] });
       n.close();
-      expect(n.open("2.0.0")).toEqual({ sendHello: true, sendOpening: false });
+      expect(n.open("2.0.0")).toEqual({ sendHello: true, reply: false, sendOpening: false });
     }
+    // An early answer (to a hello of ours from an open before): the peer has ours, so only the opening goes.
+    const n = new Negotiator([]);
+    n.receive(2, "hello", { f: [], re: 1 });
+    expect(n.open("2.0.0")).toEqual({ sendHello: false, reply: false, sendOpening: true });
+    expect(n.mode).toBe("v2");
   });
 
   it("intersects the features, keeping its own order and dropping names it does not know", () => {
@@ -95,22 +102,27 @@ describe("the negotiator", () => {
     expect(n.features).toEqual([]);
   });
 
-  it("answers a hello in version 2 only when it sent none since the last it got: no hello ping-pong", () => {
+  it("always answers a hello without re, in any mode, and never one with re: no hello ping-pong", () => {
     const a = new Negotiator([]);
     const b = new Negotiator([]);
     a.open("2.0.0");
     b.open("2.0.0");
-    // Both hellos cross: neither answers.
-    expect(a.receive(2, "hello", { f: [] }).sendHello).toBe(false);
-    expect(b.receive(2, "hello", { f: [] }).sendHello).toBe(false);
-    // A sees B open again (B did not see A close): A says hello again, and waits.
+    // Both hellos cross: each answers the other's once, with its opening.
+    expect(a.receive(2, "hello", { f: [] })).toEqual({ handle: false, sendHello: true, sendOpening: true, changed: true });
+    expect(b.receive(2, "hello", { f: [] })).toEqual({ handle: false, sendHello: true, sendOpening: true, changed: true });
+    // The answers are not answered.
+    expect(a.receive(2, "hello", { f: [], re: 1 })).toEqual({ handle: false, sendHello: false, sendOpening: false, changed: false });
+    expect(b.receive(2, "hello", { f: [], re: 1 })).toEqual({ handle: false, sendHello: false, sendOpening: false, changed: false });
+    // A opened again on B's side (B did not see it close): A says hello and waits; B, in version 2, answers it.
     expect(a.open("2.0.0").sendHello).toBe(true);
-    // B is in version 2 and had sent nothing since A's hello: it answers, once, with its opening.
     expect(b.receive(2, "hello", { f: [] })).toEqual({ handle: false, sendHello: true, sendOpening: true, changed: false });
-    expect(a.receive(2, "hello", { f: [] }).sendHello).toBe(false);
+    expect(a.receive(2, "hello", { f: [], re: 1 }).sendHello).toBe(false);
     expect(a.mode).toBe("v2");
-    // A stray hello again: B answered last, so it does not answer it; two answers never answer each other.
-    expect(b.receive(2, "hello", { f: [] }).sendHello).toBe(false);
+    // A hello with re in version 1 or "hello" also moves to version 2, and sends the opening only.
+    const c = new Negotiator([]);
+    c.open("1.0.2");
+    expect(c.receive(2, "hello", { f: [], re: 1 })).toEqual({ handle: false, sendHello: false, sendOpening: true, changed: true });
+    expect(c.mode).toBe("v2");
   });
 });
 
@@ -131,7 +143,9 @@ describe("negotiation on the mock broker", () => {
     expect(kinds(a.sent)).toEqual(["2:hello"]);
     a.inject(encodeMessage({ k: "hello", pv: 2, f: [] }));
     await settle(ana);
-    expect(kinds(a.sent)).toEqual(["2:hello", "2:seek"]);
+    // The contact's hello (not an answer) is answered with re: 1, then the opening.
+    expect(kinds(a.sent)).toEqual(["2:hello", "2:hello", "2:seek"]);
+    expect(a.sent[1]).toEqual({ p: "chess", v: 2, k: "hello", pv: 2, f: [], re: 1 });
   });
 
   it("switches to version 1 on a v1 seek and answers it as 1.0.2 does: its own seek, then the reveal", async () => {
@@ -193,22 +207,116 @@ describe("negotiation on the mock broker", () => {
 
   it("answers the contact's hello again when the broker says it opened twice", async () => {
     const [a, b] = chatPair("2.0.0");
+    let clock = 0;
+    const now = () => clock;
     a.launch();
-    const ana = new ChessController(a);
+    const ana = new ChessController(a, { now });
     await ana.start();
     b.launch();
-    const bob = new ChessController(b);
+    const bob = new ChessController(b, { now });
     await bob.start();
     await settle(ana, bob);
-    expect(kinds(a.sent)).toEqual(["2:hello"]);
-    expect(kinds(b.sent)).toEqual(["2:hello"]);
+    // Each says hello and answers the other's.
+    expect(kinds(a.sent)).toEqual(["2:hello", "2:hello"]);
+    expect(kinds(b.sent)).toEqual(["2:hello", "2:hello"]);
     // A second open event for Bob's side, with no close: Bob says hello again and holds; Ana answers.
+    clock += 5000;
     b.emitPeer({ open: true, version: "2.0.0" });
     await settle(ana, bob);
     expect(bob.view().mode).toBe("v2");
     expect(ana.view().mode).toBe("v2");
     await ana.invite();
     await settle(ana, bob);
-    expect(bob.view().invitation).toEqual({ rematch: false });
+    expect(bob.view().invitation).toEqual({ rematch: false, playable: true });
+  });
+
+  it("reaches version 2 again when the contact reloads after an early hello, and a move goes through", async () => {
+    // The review's case: the handshake took the early path (Bob's hello before the broker said he opened), then Bob's
+    // page reloads and Ana is not told. Before replies were explicit, Bob waited for a hello for good.
+    const [a, b] = chatPair("2.0.0");
+    let clock = 0;
+    const now = () => clock;
+    a.launch();
+    const ana = new ChessController(a, { now });
+    await ana.start();
+    b.isOpen = true; // Bob's page is quick: his hello reaches Ana before the broker's open event for him
+    const bob1 = new ChessController(b, { now });
+    await bob1.start();
+    await settle(ana, bob1);
+    a.emitPeer({ open: true, version: "2.0.0" });
+    await settle(ana, bob1);
+    expect(ana.view().mode).toBe("v2");
+    expect(bob1.view().mode).toBe("v2");
+    await ana.invite();
+    await settle(ana, bob1);
+    await bob1.acceptInvitation();
+    await settle(ana, bob1);
+    expect(ana.view().phase).toBe("playing");
+    // Bob's page reloads; Ana's app sees no close and no open.
+    bob1.stop();
+    clock += 5000;
+    const bob = new ChessController(b, { now });
+    await bob.start();
+    await settle(ana, bob);
+    expect(bob.view().mode).toBe("v2");
+    expect(bob.view().phase).toBe("playing");
+    const white = ana.view().me === "w" ? ana : bob;
+    const black = white === ana ? bob : ana;
+    expect(await white.move("e2", "e4")).toBe(true);
+    await settle(ana, bob);
+    expect(await black.move("e7", "e5")).toBe(true);
+    await settle(ana, bob);
+    expect(ana.view().plies).toBe(2);
+    expect(bob.view().plies).toBe(2);
+  });
+
+  it("answers a stray hello at most once, and an answer never", async () => {
+    const [a, b] = chatPair("2.0.0");
+    a.launch();
+    const ana = new ChessController(a);
+    await ana.start();
+    b.launch();
+    await settle(ana);
+    a.inject(encodeMessage({ k: "hello", pv: 2, f: [], re: 1 }));
+    await settle(ana);
+    expect(ana.view().mode).toBe("v2");
+    expect(kinds(a.sent)).toEqual(["2:hello"]);
+    // Three stray hellos within a second: one answer now, and the others share one when the second is up.
+    for (let i = 0; i < 3; i++) a.inject(encodeMessage({ k: "hello", pv: 2, f: [] }));
+    await settle(ana);
+    expect(kinds(a.sent)).toEqual(["2:hello", "2:hello"]);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await settle(ana);
+    expect(kinds(a.sent)).toEqual(["2:hello", "2:hello", "2:hello"]);
+    expect(a.sent.slice(1).every((f) => (f as { re?: number }).re === 1)).toBe(true);
+    // Answers are never answered.
+    for (let i = 0; i < 3; i++) a.inject(encodeMessage({ k: "hello", pv: 2, f: [], re: 1 }));
+    await settle(ana);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await settle(ana);
+    expect(kinds(a.sent)).toEqual(["2:hello", "2:hello", "2:hello"]);
+    ana.stop();
+  });
+
+  it("says hello again while it waits for the contact's, until it comes", async () => {
+    const [a, b] = chatPair("2.0.0");
+    a.launch();
+    const ana = new ChessController(a, { helloRetryMs: 10 });
+    await ana.start();
+    b.launch(); // a script that lost Ana's first hello
+    await settle(ana);
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    await settle(ana);
+    expect(a.sent.length).toBeGreaterThan(1);
+    expect(kinds(a.sent).every((k) => k === "2:hello")).toBe(true);
+    expect(a.sent.every((f) => (f as { re?: number }).re === undefined)).toBe(true);
+    a.inject(encodeMessage({ k: "hello", pv: 2, f: [], re: 1 }));
+    await settle(ana);
+    expect(ana.view().mode).toBe("v2");
+    const answered = a.sent.length;
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    await settle(ana);
+    expect(a.sent.length).toBe(answered);
+    ana.stop();
   });
 });

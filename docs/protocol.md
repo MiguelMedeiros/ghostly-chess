@@ -46,7 +46,7 @@ Version 2 keeps every kind above, and adds fields and kinds:
 
 | Kind | Fields | Meaning |
 |---|---|---|
-| `hello` (new) | `pv`, `f`, `n?` | `pv` = 2, the protocol the sender speaks; `f` = its features (at most 16 names of `[a-z-]`, 16 characters or fewer); `n` = its display name, 48 code points or fewer |
+| `hello` (new) | `pv`, `f`, `n?`, `re?` | `pv` = 2, the protocol the sender speaks; `f` = its features (at most 16 names of `[a-z-]`, 16 characters or fewer); `n` = its display name, 48 code points or fewer; `re` = 1 when the hello answers one (any other value refuses the frame) |
 | `seek` | `c`, `a`, `tc?`, `r?` | An invitation with its terms: `tc` = [base s, increment s], base 15 to 10800, increment 0 to 60, absent for unlimited; `r` = the game this is a rematch of |
 | `decline` (new) | `c` | Declines the invitation whose commitment is `c` |
 | `reveal` | `s`, `c` | Unchanged |
@@ -64,7 +64,9 @@ result).
 
 Every 2.x reads every 2.x frame. What a side does with them is gated by the features both hellos name: `clock`,
 `takeback`, `rematch`, `abort` and `names`. A build names only what it implements (2.0.0 names none yet), so a later
-Chess never sends it a clock or a takeback it cannot run.
+Chess never sends it a clock or a takeback it cannot run. The gate holds on receipt too: an invitation with `tc`
+without `clock` named by both, or with `r` without `rematch`, is shown but cannot be accepted (Accept is off, with
+the reason), and a sync's `time` end needs `clock`, its `aborted` end `abort`.
 
 The longest version 2 sync (2000 plies, clocks and terms) is about 12 KiB (12,325 bytes).
 
@@ -79,9 +81,12 @@ The client tells each side the contact's Chess version: `context().peer.version`
    side sends its opening: its game as a `sync`, and its open invitation as a `seek`.
 3. If a version 1 frame arrives instead of a hello, the contact speaks version 1 after all: this side switches, sends
    1.0.2's opening, then handles that frame.
-4. A `hello` received in version 1 (the version was misread) upgrades the mode, and this side answers with its own.
-5. In version 2, a `hello` is answered only when this side sent no hello since the last one it received, so a side
-   that opened again gets an answer and two hellos never answer each other forever.
+4. Replies are explicit. A `hello` sent in answer carries `re: 1`. A `hello` without it is always answered, in any
+   mode, with a `hello` with it and the opening, at most once a second (one asked for sooner goes when the second is
+   up). A `hello` with `re` is never answered. Either kind moves version 1 (the version was misread) or the wait for
+   the contact's hello to version 2. So a side that opened again, even unseen by the other (a reload), always gets an
+   answer, and two hellos never answer each other forever.
+5. While a side waits for the contact's `hello` with the contact open, it sends its own again every 3 seconds.
 
 No frame nudges a version 1 contact to update: Ghostly checks for app updates itself (at start, every 24 hours and
 on the Apps page), and a version 2 frame makes 1.0.2 say "Update to keep playing" although play goes on. Chess shows
@@ -104,7 +109,14 @@ Neither side picks its colour:
 In version 1 the toss starts by itself as both open. In version 2 a seek is an invitation: the other side shows
 "Your contact invites you: Unlimited" with Accept and Decline. Accept sends its own `seek` with the same terms and the
 `reveal`; Decline sends `decline`. Seeks with different terms never complete; each side shows only the contact's
-latest one. An invitation made while the contact is away is kept and sent when they open Chess.
+latest one. An invitation made while the contact is away is kept and sent when they open Chess. In version 2, a
+version 1 `seek` (the contact's toss from before it read this side's hello) is taken only as the answer to an
+unlimited invitation of this side's whose toss is not under way, and that toss is then for deal 1.
+
+Each toss is for one deal, kept with it (`dv` in the `flip` record): the deal of the envelope its seek goes in, until
+the contact's commitment is held, and fixed from then on. A side answering a seek takes the deal of the seek's
+envelope. A `reveal`, and a `sync` that completes the toss, are placed only by that deal, whatever envelope they come
+in, so a side that has seen the other's salt cannot pick the better of the two deals for the same salts.
 
 ### The deals
 
@@ -120,8 +132,10 @@ Because the terms are bound into the id, two sides that disagree on them (a misr
 "out of step", never in a timed game on one side and an untimed one on the other.
 
 The mode never changes a game's deal. A game begun on 1.0.2 (deal 1) goes on untimed in either envelope; a deal 2
-game takes only version 2 frames, and a version 1 frame naming it is out of step. A `sync` is placed when `g` equals
-the version 1 deal of its salts (and it carries no terms) or the version 2 deal under the terms it carries.
+game takes only version 2 frames, and a version 1 frame naming it is out of step. The toss decides which deal places
+a `sync`: for this side's game, the game's deal; to complete a toss, the deal that toss is for (a `sync` naming the
+other deal of the same salts is a bad message and starts nothing). Deal 1 needs a `sync` with no terms; deal 2 never
+comes in a version 1 frame.
 
 ## Play
 
@@ -132,15 +146,21 @@ the version 1 deal of its salts (and it carries no terms) or the version 2 deal 
   travels in the `sync` sent when the contact opens Chess.
 - A `sync` is taken only as far as it is provable: the same game and salts (one of them this side's own), and a
   history that is this side's plus at most one legal ply of the sender's. Anything longer or different is "out of
-  step", and a new game gives up both.
+  step", and a new game gives up both: the side out of step keeps the contact's game id until a new game begins, so
+  its next `seek` names both in `a`.
+- A resignation and a move made while the contact was away: when a `sync` with the sender's resignation is one ply
+  short of this side's history and that ply is this side's own (the sender never saw it), the ply is dropped, since
+  the game ended before it, and this side sends the matching `sync`. The resigner, holding its own end, keeps its
+  history when a `sync` is its own plus one ply with no end (or the same end), and answers a `sync` with no end with
+  its own.
 - Every `draw`, `takeback`, `ack`, `flag` and `dispute` names the ply count `n` it is about. One whose `g` or `n`
   differs from this side's game is ignored.
 - A `sync`'s end `x` is taken only when this side could have reached it:
   - `resign` by the sender;
   - `agreed` when this side's own offer stood at that ply;
-  - `time` with the sender out of time (this side out of time only through a claim it accepted, which already ended
-    the game here);
-  - `aborted` only before ply 2;
+  - `time` with the sender out of time, with `clock` named by both (this side out of time only through a claim it
+    accepted, which already ended the game here);
+  - `aborted` only before ply 2, with `abort` named by both;
   - `disputed` only when this side sent or received a claim at that ply.
 
   Anything else is a bad message and changes nothing.
@@ -155,6 +175,6 @@ Per chat, in the broker's storage:
 | Key | Value |
 |---|---|
 | `game` | `{v: 2, g, me, s, dv, sd?, tc?, r?, m, k?, tw?, ts?, x?, d?, dn?, tb?, q?, pc?, fl?}`: `dv` is the deal (1 or 2). A 1.0.2 record (`v: 1`) reads as `dv: 1`, untimed, same game id |
-| `flip` | `{v: 2, salt, peer?, a, tc?, r?}`: the toss going, with the invitation's terms, so a reload sends the same seek |
+| `flip` | `{v: 2, salt, dv, peer?, a, tc?, r?}`: the toss going, the deal it is for and the invitation's terms, so a reload sends the same seek. A 1.0.2 record (`v: 1`) reads as `dv: 1` |
 | `prev` | `{g, me, tc?}`: the last finished game, for a rematch's colours |
 | `prefs` | The settings |

@@ -156,11 +156,11 @@ describe("a sync's end", () => {
     expect(other.black.game.view().end).toEqual({ result: "1/2-1/2", why: "agreed" });
   });
 
-  it("is taken for an abort only before ply 2", async () => {
+  it("is not taken for an abort unless both named \"abort\" (2.0.0 names none), nor after ply 2", async () => {
     const early = await game("e2e4");
     await from(early.black, sync(early.black, { why: "aborted" }));
-    expect(early.black.game.view().end).toEqual({ result: "*", why: "aborted" });
-    expect(early.black.notices).toEqual([]);
+    expect(early.black.notices).toEqual(["bad-message"]);
+    expect(early.black.game.view().end).toBeUndefined();
     const late = await game("e2e4", "e7e5");
     await from(late.black, sync(late.black, { why: "aborted" }));
     expect(late.black.notices).toEqual(["bad-message"]);

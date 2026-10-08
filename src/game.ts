@@ -23,7 +23,8 @@
  * A `sync` is taken only as far as it is provable: the same game (its id comes from both salts and, in version 2,
  * the terms, and the salts must include this side's own), a history that is ours plus at most one legal ply of the
  * sender's, and a non-board end this side could have reached (see acceptEnd). Anything else is shown as "out of
- * step" or ignored as a bad message, and New game starts afresh, giving up both games.
+ * step" or ignored as a bad message, and New game starts afresh, giving up both games. A toss is placed only by the
+ * deal its flip is for (SavedFlip.dv), never by the envelope of the frame that completes it.
  */
 import { Chess, type Move, type Square } from "chess.js";
 import { historyOf, plyOf, type GameHistory, type LastMove } from "./history.ts";
@@ -147,8 +148,11 @@ export interface View {
   peerVersion?: string;
   /** The features both sides named. */
   features: string[];
-  /** The contact's latest invitation, waiting for Accept or Decline. */
-  invitation?: Terms;
+  /**
+   * The contact's latest invitation, waiting for Accept or Decline. `playable` is false when its terms need a feature
+   * both sides did not name (a clock, a rematch): Accept is then off.
+   */
+  invitation?: Terms & { playable: boolean };
   /** This side's invitation, waiting for the contact. */
   proposal?: Terms;
   /** The game's time control; absent means unlimited. */
@@ -160,10 +164,15 @@ export type { LastMove };
 export interface ControllerOptions {
   random?: Random;
   now?: () => number;
+  /** How often our hello goes again while the contact's is awaited with the contact open; 0 never. */
+  helloRetryMs?: number;
 }
 
 const KEY_LOCAL = "local";
 const RESYNC_GAP_MS = 1000;
+/** At most one hello in answer a second, so a flood of hellos is not echoed. */
+const HELLO_ANSWER_GAP_MS = 1000;
+const HELLO_RETRY_MS = 3000;
 
 const other = (c: Colour): Colour => (c === "w" ? "b" : "w");
 
@@ -227,6 +236,9 @@ function lastMoveOf(move: Move): LastMove {
 
 const isPrefix = (a: string[], b: string[]) => a.length <= b.length && a.every((m, i) => b[i] === m);
 
+/** Two ends say the same. */
+const sameEnd = (a: GameEnd, b: GameEnd) => a.why === b.why && ("by" in a ? a.by : undefined) === ("by" in b ? b.by : undefined);
+
 /** A game record with no draw offer standing. */
 function noOffer(game: SavedGame): SavedGame {
   const next = { ...game };
@@ -274,6 +286,11 @@ export class ChessController {
   private queue: Promise<void>;
   private loaded!: () => void;
   private lastResync = -Infinity;
+  private lastHelloAnswer = -Infinity;
+  private readonly helloRetryMs: number;
+  private helloTimer: ReturnType<typeof setTimeout> | undefined;
+  /** An answer held back by the one-a-second limit: it goes when the second is up (one, however many came). */
+  private answerTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly listeners = new Set<() => void>();
   private readonly noticeListeners = new Set<(notice: Notice) => void>();
   private readonly unsubscribe: (() => void)[] = [];
@@ -299,6 +316,7 @@ export class ChessController {
     this.api = api;
     this.random = options.random ?? cryptoRandom;
     this.now = options.now ?? (() => Date.now());
+    this.helloRetryMs = options.helloRetryMs ?? HELLO_RETRY_MS;
     this.queue = new Promise<void>((resolve) => (this.loaded = resolve));
     // Listening from the first moment: the broker hands over an event once, as it comes, and one that came while the
     // app was still loading (the contact opening Chess, their first seek) would be lost, leaving this side waiting.
@@ -340,6 +358,7 @@ export class ChessController {
   /** Stops listening. */
   stop(): void {
     for (const off of this.unsubscribe.splice(0)) off();
+    this.clearHelloTimers();
   }
 
   /** Waits for every message received so far to be handled (for tests and for the UI after an action). */
@@ -386,7 +405,8 @@ export class ChessController {
     let phase: Phase;
     if (!this.phaseLoaded) phase = "loading";
     else if (!this.inChat) phase = "alone";
-    else if (this.stepPeerGame) phase = "out-of-step";
+    // Out of step until a new game begins; New game opens the panel meanwhile, and the next seek gives up both games.
+    else if (this.stepPeerGame && !this.choosing) phase = "out-of-step";
     else if (!this.game || this.flip || this.choosing) {
       if (mode === "v1" && this.peerOpen) phase = "toss";
       else phase = this.flip ? "invited" : "setup";
@@ -414,7 +434,7 @@ export class ChessController {
       features: this.negotiator.features,
     };
     if (this.negotiator.peerVersion) view.peerVersion = this.negotiator.peerVersion;
-    if (this.invitation && this.peerOpen) view.invitation = { ...termsOf(this.invitation), rematch: Boolean(this.invitation.r) };
+    if (this.invitation && this.peerOpen) view.invitation = { ...termsOf(this.invitation), rematch: Boolean(this.invitation.r), playable: this.playable(this.invitation) };
     if (this.flip && phase === "invited") view.proposal = { ...termsOf(this.flip), rematch: Boolean(this.flip.r) };
     if (this.game?.tc && (phase === "playing" || phase === "over")) view.tc = this.game.tc;
     return view;
@@ -533,8 +553,8 @@ export class ChessController {
       const view = this.view();
       if (view.phase === "playing") return; // resign first
       if (this.negotiator.mode === "v1" && this.peerOpen) return this.startToss(this.giveUp());
+      // The contact's game, when the two differ, stays known until a new game begins: the invitation gives it up too.
       this.choosing = true;
-      this.stepPeerGame = null;
       this.changed();
     });
   }
@@ -559,9 +579,11 @@ export class ChessController {
     return this.enqueue(async () => {
       const invitation = this.invitation;
       if (!invitation || !this.peerOpen || this.negotiator.mode !== "v2") return;
+      // Terms this build cannot play (a clock, a rematch both sides did not name) are never accepted.
+      if (!this.playable(invitation)) return;
       if (this.game && !this.ended() && !this.choosing && !invitation.a.includes(this.game.g)) return;
       this.invitation = null;
-      this.flip = { v: 2, salt: newSalt(this.random), a: this.giveUp(), peer: invitation.c, ...termsOf(invitation) };
+      this.flip = { v: 2, salt: newSalt(this.random), dv: 2, a: this.giveUp(), peer: invitation.c, ...termsOf(invitation) };
       await this.api.storage.set(KEY_FLIP, plain(this.flip));
       this.changed();
       await this.send({ k: "seek", c: commitment(this.flip.salt), a: this.flip.a, ...termsOf(this.flip) });
@@ -584,11 +606,59 @@ export class ChessController {
 
   /** The contact's Chess opened: decide the protocol, and open the conversation. */
   private async opened(version: string | undefined): Promise<void> {
-    const { sendHello, sendOpening } = this.negotiator.open(version);
+    const { sendHello, reply, sendOpening } = this.negotiator.open(version);
     this.changed();
-    if (sendHello) await this.send({ k: "hello", pv: VERSION, f: [...OWN_FEATURES] });
+    if (sendHello) await this.sendHello(reply);
     if (sendOpening) await this.openV2();
     else if (!sendHello) await this.openV1();
+    this.scheduleHello();
+  }
+
+  /**
+   * Our hello. As an answer (`re: 1`), at most once a second: one asked for sooner is held back (false) and goes, with
+   * the opening, when the second is up, so a flood of hellos gets one answer a second and a real reopen still gets one.
+   */
+  private async sendHello(reply: boolean): Promise<boolean> {
+    if (reply) {
+      const wait = this.lastHelloAnswer + HELLO_ANSWER_GAP_MS - this.now();
+      if (wait > 0) {
+        this.answerTimer ??= setTimeout(() => {
+          this.answerTimer = undefined;
+          void this.enqueue(async () => {
+            if (!this.peerOpen || this.negotiator.mode !== "v2") return;
+            this.lastHelloAnswer = this.now();
+            await this.send({ k: "hello", pv: VERSION, f: [...OWN_FEATURES], re: 1 });
+            await this.openV2();
+          });
+        }, wait);
+        return false;
+      }
+      this.lastHelloAnswer = this.now();
+    }
+    await this.send({ k: "hello", pv: VERSION, f: [...OWN_FEATURES], ...(reply ? { re: 1 as const } : {}) });
+    return true;
+  }
+
+  private clearHelloTimers(): void {
+    clearTimeout(this.helloTimer);
+    clearTimeout(this.answerTimer);
+    this.helloTimer = undefined;
+    this.answerTimer = undefined;
+  }
+
+  /** While the contact's hello is awaited with the contact open, ours goes again every few seconds (one may be lost). */
+  private scheduleHello(): void {
+    clearTimeout(this.helloTimer);
+    this.helloTimer = undefined;
+    if (this.helloRetryMs <= 0 || !this.peerOpen || !this.negotiator.holding) return;
+    this.helloTimer = setTimeout(() => {
+      this.helloTimer = undefined;
+      void this.enqueue(async () => {
+        if (!this.peerOpen || !this.negotiator.holding) return;
+        await this.sendHello(false);
+        this.scheduleHello();
+      });
+    }, this.helloRetryMs);
   }
 
   /**
@@ -597,11 +667,15 @@ export class ChessController {
    */
   private async openV1(): Promise<void> {
     this.invitation = null;
-    if (this.flip && (this.flip.tc || this.flip.r)) {
+    // Terms 1.0.2 cannot play, or a toss revealed for deal 2 (that salt is known now): dropped.
+    if (this.flip && (this.flip.tc || this.flip.r || (this.flip.dv === 2 && this.flip.peer))) {
       this.flip = null;
       await this.api.storage.delete(KEY_FLIP);
     }
-    if (this.flip) return this.send({ k: "seek", c: commitment(this.flip.salt), a: this.flip.a });
+    if (this.flip) {
+      await this.dealFor(1);
+      return this.send({ k: "seek", c: commitment(this.flip.salt), a: this.flip.a });
+    }
     if (this.game && !this.choosing) return this.sendSync();
     await this.startToss(this.giveUp());
   }
@@ -609,7 +683,19 @@ export class ChessController {
   /** Version 2's opening, once both hellos are out: the game (so the contact catches up), and the invitation. */
   private async openV2(): Promise<void> {
     if (this.game) await this.sendSync();
-    if (this.flip) await this.send({ k: "seek", c: commitment(this.flip.salt), a: this.flip.a, ...termsOf(this.flip) });
+    if (!this.flip) return;
+    await this.dealFor(2);
+    await this.send({ k: "seek", c: commitment(this.flip.salt), a: this.flip.a, ...termsOf(this.flip) });
+  }
+
+  /**
+   * The flip's seek is about to go in this envelope: until the peer's commitment is held, the toss is for that
+   * envelope's deal (the seek is all the other side sees of it). Once it is held, the deal is fixed.
+   */
+  private async dealFor(dv: 1 | 2): Promise<void> {
+    if (!this.flip || this.flip.peer || this.flip.dv === dv) return;
+    this.flip = { ...this.flip, dv };
+    await this.api.storage.set(KEY_FLIP, plain(this.flip));
   }
 
   private async peerChanged(peer: MiniAppPeerEvent): Promise<void> {
@@ -617,6 +703,7 @@ export class ChessController {
     if (!peer.open) {
       this.invitation = null; // it comes again with the contact's next open
       this.negotiator.close();
+      this.clearHelloTimers();
     }
     this.changed();
     if (peer.open) await this.opened(peer.version);
@@ -631,8 +718,9 @@ export class ChessController {
     const { message, v } = parsed;
     const decision = this.negotiator.receive(v, message.k, message.k === "hello" ? message : undefined);
     if (decision.changed) this.changed();
-    if (decision.sendHello) await this.send({ k: "hello", pv: VERSION, f: [...OWN_FEATURES] });
-    if (decision.sendOpening) await (this.negotiator.mode === "v1" ? this.openV1() : this.openV2());
+    // An answer held back by the one-a-second limit takes its opening with it later, unless the mode just changed.
+    const answered = decision.sendHello ? await this.sendHello(true) : false;
+    if (decision.sendOpening && (answered || decision.changed)) await (this.negotiator.mode === "v1" ? this.openV1() : this.openV2());
     if (!decision.handle) return;
     // A version 1 frame about a dv:2 game cannot be: the two sides disagree on the protocol.
     if (v === 1 && "g" in message && this.game?.dv === 2 && message.g === this.game.g) return this.outOfStep(message.g);
@@ -640,12 +728,18 @@ export class ChessController {
       case "hello":
         return;
       case "seek":
-        if (v === 1) return this.negotiator.mode === "v1" ? this.onSeekV1(message.c, message.a) : undefined;
+        if (v === 1) {
+          // In version 2, a version 1 seek is the contact's toss from before it read our hello (a version misread):
+          // taken only as an answer to an unlimited invitation of ours whose toss is not under way, and then for deal 1.
+          const flip = this.flip;
+          const answers = Boolean(flip && !flip.peer && !flip.tc && !flip.r);
+          return this.negotiator.mode === "v1" || answers ? this.onSeekV1(message.c, message.a) : undefined;
+        }
         return this.onSeekV2(message);
       case "decline":
         return this.onDecline(message.c);
       case "reveal":
-        return this.onReveal(v, message.s, message.c);
+        return this.onReveal(message.s, message.c);
       case "move":
         return this.onMove(message.g, message.n, message.m);
       case "sync":
@@ -679,9 +773,9 @@ export class ChessController {
       if (this.flip) this.notice("toss-restarted");
       else if (game && !over) this.notice("peer-new-game");
       const give = this.flip?.a ?? (game && !over ? [game.g] : []);
-      this.flip = { v: 2, salt: newSalt(this.random), a: give, peer: peerCommit };
+      this.flip = { v: 2, salt: newSalt(this.random), dv: 1, a: give, peer: peerCommit };
     } else {
-      this.flip = { ...this.flip, peer: peerCommit };
+      this.flip = { ...this.flip, dv: 1, peer: peerCommit };
     }
     await this.api.storage.set(KEY_FLIP, plain(this.flip));
     this.changed();
@@ -707,8 +801,8 @@ export class ChessController {
       if (flip.peer) {
         // The contact tossed again after it saw our salt: a fresh salt, since a known one would let it choose.
         this.notice("toss-restarted");
-        this.flip = { ...flip, salt: newSalt(this.random), peer: seek.c };
-      } else this.flip = { ...flip, peer: seek.c };
+        this.flip = { ...flip, salt: newSalt(this.random), dv: 2, peer: seek.c };
+      } else this.flip = { ...flip, dv: 2, peer: seek.c };
       this.invitation = null;
       await this.api.storage.set(KEY_FLIP, plain(this.flip));
       this.changed();
@@ -736,12 +830,12 @@ export class ChessController {
     this.changed();
   }
 
-  private async onReveal(v: Envelope, peerSalt: string, answering: string): Promise<void> {
+  private async onReveal(peerSalt: string, answering: string): Promise<void> {
     // A reveal for an older toss of ours, or with no toss going: stale, nothing to do.
     if (!this.flip || answering !== commitment(this.flip.salt) || !this.flip.peer) return;
-    if (v !== this.negotiator.envelope) return;
     if (commitment(peerSalt) !== this.flip.peer) return this.notice("bad-reveal");
-    if (v === 1) {
+    // The deal the toss is for, whatever envelope the reveal came in.
+    if (this.flip.dv === 1) {
       if (this.flip.tc || this.flip.r) return;
       const { g, me } = deal(this.flip.salt, peerSalt);
       return this.begin({ v: 2, g, me, s: [this.flip.salt, peerSalt], dv: 1, m: [], sd: dateStamp(this.now()) });
@@ -772,18 +866,24 @@ export class ChessController {
     this.changed();
   }
 
-  /** The id a sync's salts and terms make, by the deal it claims; null when it matches neither deal. */
-  private dealOf(v: Envelope, sync: Extract<Message, { k: "sync" }>): { g: string; me: Colour; dv: 1 | 2 } | null {
+  /**
+   * The game a sync's salts and terms make under deal `dv`, from this side's point of view; null when its g is not
+   * that. Deal 2 never comes in a version 1 frame (that envelope cannot carry its terms).
+   */
+  private dealOf(v: Envelope, sync: Extract<Message, { k: "sync" }>, dv: 1 | 2): { g: string; me: Colour } | null {
     const [theirSalt, mySalt] = sync.s;
     try {
-      const v1 = deal(mySalt, theirSalt);
-      if (v1.g === sync.g && !sync.tc && !sync.r) return { ...v1, dv: 1 };
+      if (dv === 1) {
+        if (sync.tc || sync.r) return null;
+        const dealt = deal(mySalt, theirSalt);
+        return dealt.g === sync.g ? dealt : null;
+      }
       if (v === 1) return null;
       const terms = termsOf(sync);
       // A rematch's id does not depend on the colours: the colours come from the game before, when adopted.
       const prevColour = terms.r ? (this.prev?.g === terms.r ? this.prev.me : "w") : undefined;
-      const v2 = deal2(mySalt, theirSalt, terms, prevColour);
-      return v2.g === sync.g ? { ...v2, dv: 2 } : null;
+      const dealt = deal2(mySalt, theirSalt, terms, prevColour);
+      return dealt.g === sync.g ? dealt : null;
     } catch {
       return null;
     }
@@ -792,18 +892,20 @@ export class ChessController {
   private async onSync(v: Envelope, sync: Extract<Message, { k: "sync" }>): Promise<void> {
     const { g, m: moves, x } = sync;
     const [theirSalt, mySalt] = sync.s;
-    const dealt = this.dealOf(v, sync);
-    if (!dealt) return this.notice("bad-message");
     const same = this.game && this.game.g === g && this.game.s[0] === mySalt && this.game.s[1] === theirSalt;
+    if (same && !this.dealOf(v, sync, this.game!.dv)) return this.notice("bad-message");
     if (!same) {
-      // Adopt only a game this side's own salt made: the toss it had going, with its terms, so the colours are the
-      // ones it agreed to.
+      // Adopt only a game this side's own salt made: the toss it had going, with its terms, under the deal that toss is
+      // for. A sync naming the other deal of the same salts starts nothing: no side picks the better of two deals.
       const flip = this.flip;
-      if (flip && flip.salt === mySalt && flip.peer === commitment(theirSalt) && dealt.dv === v && sameTerms(flip, sync)) {
-        if (dealt.dv === 2 && flip.r && this.prev?.g !== flip.r) return this.notice("bad-message");
-        await this.begin({ v: 2, g, me: dealt.me, s: [mySalt, theirSalt], dv: dealt.dv, m: [], sd: dateStamp(this.now()), ...termsOf(flip) });
+      if (flip && flip.salt === mySalt && flip.peer === commitment(theirSalt)) {
+        const dealt = sameTerms(flip, sync) ? this.dealOf(v, sync, flip.dv) : null;
+        if (!dealt) return this.notice("bad-message");
+        if (flip.dv === 2 && flip.r && this.prev?.g !== flip.r) return this.notice("bad-message");
+        await this.begin({ v: 2, g, me: dealt.me, s: [mySalt, theirSalt], dv: flip.dv, m: [], sd: dateStamp(this.now()), ...termsOf(flip) });
         return this.onSync(v, sync);
       }
+      if (!this.dealOf(v, sync, 1) && !this.dealOf(v, sync, 2)) return this.notice("bad-message");
       if (this.game && this.game.g === g) return this.notice("bad-message");
       return this.outOfStep(g);
     }
@@ -812,10 +914,21 @@ export class ChessController {
     if ((sync.tb ?? 0) > (game.tb ?? 0)) return this.outOfStep(g);
     this.stepPeerGame = null;
     let next = game;
+    let dropped = false;
+    const plusOne = moves.length === game.m.length + 1 && isPrefix(game.m, moves);
+    if (plusOne && game.x && (!x || sameEnd(x, game.x))) {
+      // This side's game ended off the board (it resigned, say) before the sender's last ply reached it, a move made
+      // while this side was away. The end stands where this side made it: ours is kept, not out of step. With no end
+      // in the sync the sender has not heard of ours yet, so it gets our sync (once per such sync: it drops that ply).
+      this.stepPeerGame = null;
+      this.changed();
+      if (!x) await this.sendSync();
+      return;
+    }
     if (moves.length > game.m.length) {
       // Ours plus one ply, the sender's: a move of theirs we missed. Anything longer is not provable.
       const extra = moves[game.m.length];
-      const ok = moves.length === game.m.length + 1 && isPrefix(game.m, moves) && this.chess.turn() === other(game.me) && !this.ended();
+      const ok = plusOne && this.chess.turn() === other(game.me) && !this.ended();
       const chess = ok ? replay(moves) : null;
       if (!chess) return this.outOfStep(g);
       this.chess = chess;
@@ -824,8 +937,20 @@ export class ChessController {
       return this.outOfStep(g);
     }
     if (x && !next.x) {
-      if (this.acceptEnd(next, x, moves.length)) next = { ...noOffer(next), x };
-      else this.notice("bad-message");
+      if (this.acceptEnd(next, x, moves.length)) {
+        next = { ...noOffer(next), x };
+        // The sender resigned one ply short of ours, and that ply is this side's own: a move made while the sender
+        // was away, which it never saw. The game ended before it, so it goes, and both sides hold the same history.
+        const last = game.m.length - 1;
+        if (x.why === "resign" && moves.length === last && last >= 0 && (last % 2 === 0) === (game.me === "w")) {
+          const chess = replay(moves);
+          if (chess) {
+            this.chess = chess;
+            next = { ...next, m: [...moves] };
+            dropped = true;
+          }
+        }
+      } else this.notice("bad-message");
     }
     // The sender's standing draw offer, at this very ply (version 2 only).
     if (!next.x && !next.d && sync.d && sync.d[0] === other(next.me) && sync.d[1] === next.m.length && moves.length === next.m.length) {
@@ -836,17 +961,18 @@ export class ChessController {
       await this.saveGame();
     }
     this.changed();
-    // The peer is behind (fewer plies, or no end it should know): it catches up from ours.
-    if (moves.length < next.m.length || (next.x && !x)) await this.sendSync();
+    // The peer is behind (fewer plies, or no end it should know): it catches up from ours. After a dropped ply, the
+    // sender gets the matching history too: it may have gone out of step on our longer one meanwhile.
+    if (moves.length < next.m.length || (next.x && !x) || dropped) await this.sendSync();
   }
 
   /**
    * Whether a sync's end is one this side could have reached, with `plies` on the sender's board:
    * - resign by the sender;
    * - agreed when this side's own offer stood at that ply;
-   * - time with the sender out of time, in a timed game (this side out of time only through a claim it accepted,
-   *   which ended the game here already);
-   * - aborted only before ply 2;
+   * - time with the sender out of time, in a timed game, with "clock" named by both (this side out of time only
+   *   through a claim it accepted, which ended the game here already);
+   * - aborted only before ply 2, with "abort" named by both;
    * - disputed only when this side sent or received a claim at that ply.
    * Anything else is a bad message and changes nothing: a peer cannot end a game by claiming any end.
    */
@@ -858,9 +984,9 @@ export class ChessController {
       case "agreed":
         return game.d === "me" && (game.dn ?? game.m.length) === game.m.length && plies === game.m.length;
       case "time":
-        return Boolean(game.tc) && x.by === sender;
+        return Boolean(game.tc) && this.negotiator.features.includes("clock") && x.by === sender;
       case "aborted":
-        return game.m.length < 2 && plies < 2;
+        return this.negotiator.features.includes("abort") && game.m.length < 2 && plies < 2;
       case "disputed":
         return game.fl !== undefined && game.fl === plies;
     }
@@ -936,14 +1062,23 @@ export class ChessController {
 
   // ---------- helpers ----------
 
+  /** Whether this side can play an invitation's terms: a clock and a rematch need the feature both sides named. */
+  private playable(terms: { tc?: TimeControl; r?: string }): boolean {
+    const features = this.negotiator.features;
+    return (!terms.tc || features.includes("clock")) && (!terms.r || features.includes("rematch"));
+  }
+
   /** The games a new toss gives up: ours, and the peer's when they differ. */
   private giveUp(): string[] {
     return [this.game?.g, this.stepPeerGame].filter((g): g is string => Boolean(g)).slice(0, 2);
   }
 
-  /** A new toss with a fresh salt, giving up these games, with these terms (none in version 1). */
+  /**
+   * A new toss with a fresh salt, giving up these games, with these terms (none in version 1). It is for the deal of
+   * the envelope its seek goes in (and goes again in, while the contact is away: see dealFor).
+   */
   private async startToss(abandons: string[], terms: { tc?: TimeControl; r?: string } = {}): Promise<void> {
-    this.flip = { v: 2, salt: newSalt(this.random), a: abandons.slice(0, 2), ...termsOf(terms) };
+    this.flip = { v: 2, salt: newSalt(this.random), dv: this.negotiator.envelope, a: abandons.slice(0, 2), ...termsOf(terms) };
     await this.api.storage.set(KEY_FLIP, plain(this.flip));
     this.changed();
     await this.send({ k: "seek", c: commitment(this.flip.salt), a: this.flip.a, ...termsOf(this.flip) });

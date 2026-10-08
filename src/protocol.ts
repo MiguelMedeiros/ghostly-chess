@@ -11,7 +11,7 @@
  *   draw    {g, o}        o = "offer", "accept" or "decline"
  *
  * Version 2 keeps those and adds (negotiate.ts decides which one a side speaks):
- *   hello    {pv, f, n?}           the protocol the sender speaks, its features, its display name
+ *   hello    {pv, f, n?, re?}      the protocol the sender speaks, its features, its display name; re = 1 in answer to one
  *   seek     {c, a, tc?, r?}       now an invitation with its terms: tc = [base s, increment s], r = a rematch of game r
  *   decline  {c}                   declines the invitation whose commitment is c
  *   move     {g, n, m, t?}         t = the mover's remaining ms after ply n, in a timed game
@@ -67,7 +67,7 @@ export type DrawOption = "offer" | "accept" | "decline";
 export type TakebackOption = "ask" | "accept" | "decline";
 
 export type Message =
-  | { k: "hello"; pv: number; f: string[]; n?: string }
+  | { k: "hello"; pv: number; f: string[]; n?: string; re?: 1 }
   | { k: "seek"; c: string; a: string[]; tc?: TimeControl; r?: string }
   | { k: "decline"; c: string }
   | { k: "reveal"; s: string; c: string }
@@ -316,6 +316,10 @@ function parseV2(v: Record<string, unknown>): Message | null {
         if (typeof v.n !== "string" || [...v.n].length > MAX_NAME) return null;
         const name = cleanName(v.n);
         if (name) message.n = name;
+      }
+      if (v.re !== undefined) {
+        if (v.re !== 1) return null;
+        message.re = 1;
       }
       return message;
     }

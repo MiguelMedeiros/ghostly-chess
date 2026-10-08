@@ -23,7 +23,8 @@
  * Below the notices, one standing line (hidden while a notice shows): that this side may still move while the contact's
  * Chess is closed, that an invitation waits for the contact, or, with Chess 1.0.2 (version 1), what the contact's
  * version lacks, with the details behind ⓘ. The new-game panel and the contact's invitation are cards on the board
- * (setup.ts), so the board keeps its size.
+ * (setup.ts), so the board keeps its size. While the contact's invitation shows, .status says it, and it is announced
+ * when it comes; a card that hides under focus hands it to the invitation's button or the board.
  *
  * Stable for Ghostly's end-to-end tests: the .status and .side texts, and the squares (see board.ts). .status keeps
  * 1.0.2's words, also while this side may still move with the contact away: the hint is a line of its own.
@@ -41,7 +42,7 @@ import { SVG_NS } from "./pieces.ts";
 import { PrefsStore } from "./prefs.ts";
 import { Review } from "./review.ts";
 import { openSettings } from "./settings.ts";
-import { createSetup } from "./setup.ts";
+import { createSetup, invitationWords } from "./setup.ts";
 import { soundOf, Sounds, type Seen, type SoundOptions } from "./sound.ts";
 import type { StringKey, Strings } from "./strings.ts";
 
@@ -225,6 +226,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   let lastPlies = -1;
   let lastEnd = "";
+  let lastInvitation = "";
   let seen: Seen | null = null;
   let shownPly = -1;
   let openingFor: { record: GameHistory; at: number; opening: Opening | undefined } | null = null;
@@ -271,7 +273,15 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     // The contact's invitation takes the board's card place from the game-over card.
     const end = view.invitation ? undefined : view.end;
     gameOver.render(end ? view : { ...view, end: undefined }, end ? `${view.plies}|${end.why}|${end.result}|${record.fens[1] ?? ""}` : "", boardHadFocus);
+    const cardHadFocus = cards.setup.contains(document.activeElement) || cards.invitation.contains(document.activeElement);
     cards.render(view);
+    // A card that hid under focus (Invite, Accept, Decline, or the contact's invitation replacing the panel) would drop
+    // it to the page: it goes to the invitation's first working button, else to the board.
+    const focused = document.activeElement;
+    if (cardHadFocus && (!(focused instanceof HTMLElement) || focused === document.body || focused.closest("[hidden]") || (focused as HTMLButtonElement).disabled)) {
+      const next = cards.invitation.hidden ? null : cards.invitation.querySelector<HTMLButtonElement>("button:not([disabled])");
+      (next ?? board.element.querySelector<HTMLElement>('[tabindex="0"]'))?.focus();
+    }
     const line = standingText(view, t);
     standing.hidden = !line;
     standingWords.textContent = line?.text ?? "";
@@ -290,19 +300,28 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
       const who = view.phase === "alone" ? (view.lastMove.colour === "w" ? t.whiteName : t.blackName) : view.lastMove.colour === view.me ? t.you : t.contact;
       announcer.say(sayMove(view.lastMove, who, view, t));
     }
-    const end = view.end ? statusText(view) : "";
+    const end = view.end ? endText(view.end, view) : "";
     if (lastPlies >= 0 && end && end !== lastEnd) announcer.say(end);
     lastEnd = end;
     lastPlies = view.plies;
+    // The contact's invitation, when it comes or changes: the card alone would go unheard.
+    const invitation = view.invitation ? invitationWords(view.invitation, t) : "";
+    if (invitation && invitation !== lastInvitation) announcer.say(invitation);
+    lastInvitation = invitation;
+  }
+
+  /** How the game ended, from this side: "You won: checkmate". */
+  function endText(end: NonNullable<View["end"]>, view: View): string {
+    const { result, why } = end;
+    const head =
+      result === "*" ? t.noResult : result === "1/2-1/2" ? t.drawn : view.me ? ((result === "1-0") === (view.me === "w") ? t.won : t.lost) : result === "1-0" ? t.whiteWins : t.blackWins;
+    return `${head}: ${t[`why_${why}`]}`;
   }
 
   function statusText(view: View): string {
-    if (view.end) {
-      const { result, why } = view.end;
-      const head =
-        result === "*" ? t.noResult : result === "1/2-1/2" ? t.drawn : view.me ? ((result === "1-0") === (view.me === "w") ? t.won : t.lost) : result === "1-0" ? t.whiteWins : t.blackWins;
-      return `${head}: ${t[`why_${why}`]}`;
-    }
+    // The contact's invitation is what the board shows (its card takes the game-over card's place): the status says it.
+    if (view.invitation) return invitationWords(view.invitation, t);
+    if (view.end) return endText(view.end, view);
     const check = view.inCheck ? `. ${t.check}` : "";
     switch (view.phase) {
       case "loading":
