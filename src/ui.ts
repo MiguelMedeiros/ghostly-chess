@@ -1,23 +1,38 @@
 /**
- * The page: the board (board.ts) between two player strips, and a panel with the status, the moves and the controls.
- * Plain DOM, no framework.
+ * The page: the board (board.ts) between two player strips, and a panel with the status, the opening, the moves, the
+ * review bar and the controls (panel.ts). Plain DOM, no framework.
+ *
+ * The board is drawn from the review cursor (review.ts): the live game, or a past position while reviewing. What
+ * belongs to the game itself reads the live game: the status line, whose turn the strips show, the controls, the
+ * announcements and the sounds. So the contact's move still lands in the list, is read aloud and heard while the board
+ * stays where the review is. The pieces each side took and the opening follow the board.
  *
  * Layout: the board's side is the largest multiple of 8 px that fits, so its squares leave no sub-pixel seam. The
  * panel stands beside the board when that leaves the board at least as big (a wide window), and below it otherwise (a
  * phone, Desktop's 560x640 chat-app window), where the moves are one scrolling row and the controls a bar.
  *
  * Below the board, the board is sized from the panel's reserved height (NARROW_PANEL), never from what the panel holds
- * at the moment: a draw offer, a notice or the first move must not resize the board under a finger. The reserve holds
- * the status, the side, the move row, one row of controls and one notice line; the contact's draw offer floats over
- * the move row and the controls instead of taking a row of its own.
+ * at the moment: a draw offer, a notice, the opening's name or the first move must not resize the board under a
+ * finger. The reserve holds the status, the side, the opening, the move row, the review bar, one row of controls and
+ * one notice line; the contact's draw offer floats over the move row and the controls instead of taking a row of its
+ * own, and the game-over card sits on the board.
+ *
+ * Keys: Left/Right step the review and Home/End go to its ends when focus is outside the board (the board keeps the
+ * arrows for its squares); PageUp/PageDown step it from anywhere. A dialog keeps its keys.
  *
  * Stable for Ghostly's end-to-end tests: the .status and .side texts, and the squares (see board.ts).
  */
-import type { ChessController, LastMove, Notice, View } from "./game.ts";
+import type { ChessController, Notice, View } from "./game.ts";
 import { createAnnouncer } from "./announce.ts";
 import { Board } from "./board.ts";
+import type { GameHistory, LastMove } from "./history.ts";
+import { MAX_PLY, openingOf, type Opening } from "./openings.ts";
+import { createGameOver, createMoveList, createReviewBar, moveWords, openPgnDialog, renderOpening, takenNode } from "./panel.ts";
+import { pgnOfGame } from "./pgn.ts";
 import { PrefsStore } from "./prefs.ts";
+import { Review } from "./review.ts";
 import { openSettings } from "./settings.ts";
+import { soundOf, Sounds, type Seen, type SoundOptions } from "./sound.ts";
 import type { StringKey, Strings } from "./strings.ts";
 
 const NOTICE_KEY: Record<Notice, StringKey> = {
@@ -41,9 +56,10 @@ const PAGE_PAD = 16;
 const GAP = 8;
 /**
  * The panel's reserved height below the board, in CSS pixels: what style.css gives each of its lines in the narrow
- * layout (status 20, side 18, move row 30, controls 36, notices 18) and the 6 px between them.
+ * layout (status 20, side 18, opening 16, move row 30, review bar 32, controls 36, notices 18) and the 6 px between
+ * them.
  */
-export const NARROW_PANEL = 20 + 18 + 30 + 36 + 18 + 5 * 6;
+export const NARROW_PANEL = 20 + 18 + 16 + 30 + 32 + 36 + 18 + 7 * 6;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
   const node = document.createElement(tag);
@@ -63,92 +79,126 @@ export function fitBoard(width: number, height: number, strips: number, panelBel
 
 /** A move in words, for the live region: "Your contact: knight to f6, check". */
 export function sayMove(move: LastMove, who: string, view: View, t: Strings): string {
-  const piece = t[`piece_${move.piece}`];
-  let text =
-    move.castle === "k" ? t.say_castleK : move.castle === "q" ? t.say_castleQ : move.captured ? t.say_capture : t.say_move;
-  text = text.replace("{who}", who).replace("{piece}", piece).replace("{square}", move.to);
-  if (move.promotion) text += `, ${t.say_promote.replace("{piece}", t[`piece_${move.promotion}`])}`;
-  if (view.end?.why === "checkmate") text += `, ${t.say_mate}`;
-  else if (view.inCheck) text += `, ${t.say_check}`;
-  return text;
+  return moveWords(move, who, t, view.inCheck, view.end?.why === "checkmate");
 }
 
-export function mountChess(root: HTMLElement, game: ChessController, t: Strings, prefs: PrefsStore = new PrefsStore(null)): () => void {
+export interface MountOptions {
+  /** For tests: the sound engine's parts (the context, the synthesizer, the page's visibility). */
+  sound?: Partial<SoundOptions>;
+}
+
+export function mountChess(root: HTMLElement, game: ChessController, t: Strings, prefs: PrefsStore = new PrefsStore(null), options: MountOptions = {}): () => void {
   const app = el("main", "app");
   const play = el("div", "play");
   const top = el("div", "strip top");
   const bottom = el("div", "strip bottom");
-  const board = new Board(game, t, prefs);
+  // Made before the page listens to the game: it checks its cursor against each change first.
+  const review = new Review(game);
+  const board = new Board(review, t, prefs);
   play.append(top, board.element, bottom);
 
   const panel = el("div", "panel");
   const status = el("p", "status");
   const side = el("p", "side");
-  const moves = el("ol", "moves");
-  moves.setAttribute("aria-label", t.moves);
-  moves.tabIndex = 0;
+  const opening = el("p", "opening");
+  const moves = createMoveList(t, (ply) => review.go(ply));
+  const reviewBar = createReviewBar(t, review);
   // The contact's draw offer: a card of its own in the controls. Below the board it floats up over the controls and the
   // move row instead of adding a row.
   const offerCard = el("div", "offer-card");
   offerCard.setAttribute("role", "group");
   offerCard.hidden = true;
+  const navRow = el("div", "row navrow");
   const bar = el("div", "bar");
   const actions = el("div", "row actions");
-  const tools = el("div", "row tools");
-  const flip = el("button", "act icon flip");
-  flip.type = "button";
-  flip.textContent = "⇅";
-  flip.title = t.flip;
-  flip.setAttribute("aria-label", t.flip);
-  const settings = el("button", "act icon settings-btn");
-  settings.type = "button";
-  settings.textContent = "⚙︎";
-  settings.title = t.settings;
-  settings.setAttribute("aria-label", t.settings);
-  tools.append(flip, settings);
-  bar.append(offerCard, actions, tools);
+  const tools = el("div", "tools");
+  const tool = (className: string, text: string, label: string, run: () => void) => {
+    const b = el("button", `act icon ${className}`, text);
+    b.type = "button";
+    b.title = label;
+    b.setAttribute("aria-label", label);
+    b.addEventListener("click", run);
+    return b;
+  };
+  const mute = tool("mute", "", t.sound, () => void prefs.set({ sound: !prefs.get().sound }));
+  const flip = tool("flip", "⇅", t.flip, () => board.flip());
+  const settings = tool("settings-btn", "⚙︎", t.settings, () => openSettings(app, prefs, t, settings));
+  tools.append(mute, flip, settings);
+  navRow.append(reviewBar.element, tools);
+  bar.append(offerCard, actions);
   const notices = el("div", "notices");
   const notice = el("p", "notice");
   notice.setAttribute("role", "alert");
   const info = el("p", "notice info");
   notices.append(notice, info);
-  panel.append(status, side, moves, bar, notices);
+  panel.append(status, side, opening, moves.element, navRow, bar, notices);
   const announcer = createAnnouncer();
   app.append(play, panel, announcer.element);
   root.replaceChildren(app);
+
+  const toMoves = () => {
+    const target = moves.element.querySelector<HTMLButtonElement>('button[tabindex="0"]') ?? reviewBar.element.querySelector<HTMLButtonElement>("button:not([disabled])");
+    target?.focus();
+  };
+  const copyPgn = (opener: HTMLElement) => openPgnDialog(app, pgnOfGame(game), t, opener);
+  const gameOver = createGameOver(t, { newGame: () => void game.newGame(), copyPgn, review: toMoves });
+  board.element.append(gameOver.element);
+
+  const sounds = new Sounds({ enabled: () => prefs.get().sound, ...options.sound });
 
   let resignArmed = false;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   let lastPlies = -1;
   let lastEnd = "";
-  let movesShown = -1;
+  let seen: Seen | null = null;
+  let shownPly = -1;
+  let openingFor: { record: GameHistory; at: number; opening: Opening | undefined } | null = null;
 
-  flip.addEventListener("click", () => board.flip());
-  settings.addEventListener("click", () => openSettings(app, prefs, t, settings));
-
-  function strip(node: HTMLElement, colour: "w" | "b", view: View): void {
+  function strip(node: HTMLElement, colour: "w" | "b", view: View, record: GameHistory, at: number): void {
     const name = view.phase === "alone" ? (colour === "w" ? t.whiteName : t.blackName) : view.me ? (colour === view.me ? t.you : t.contact) : node === bottom ? t.you : t.contact;
     const dot = el("span", `dot ${view.me || view.phase === "alone" ? colour : "unknown"}`);
     dot.setAttribute("aria-hidden", "true");
     const label = el("span", "name", name);
-    const key = `${name}|${dot.className}|${view.turn === colour && !view.end}`;
+    const taken = record.taken(at)[colour];
+    const material = record.material(at);
+    const set = prefs.get().pieces;
+    const key = `${name}|${dot.className}|${view.turn === colour && !view.end}|${taken.join("")}|${material}|${set}`;
     if (node.dataset.key === key) return;
     node.dataset.key = key;
     node.classList.toggle("to-move", view.turn === colour && !view.end && view.phase !== "toss");
-    node.replaceChildren(dot, label);
+    node.replaceChildren(dot, label, takenNode(colour, taken, material, set, t));
   }
 
   function render(): void {
     const view = game.view();
-    board.render(view);
+    const shown = review.view();
+    const record = game.record();
+    const at = review.ply();
+    const boardHadFocus = board.element.contains(document.activeElement);
+    board.render(shown);
+    board.element.classList.toggle("reviewing", review.reviewing());
     const down = board.orientation();
-    strip(bottom, down, view);
-    strip(top, down === "w" ? "b" : "w", view);
+    strip(bottom, down, view, record, at);
+    strip(top, down === "w" ? "b" : "w", view, record, at);
     status.textContent = statusText(view);
     side.textContent = view.me ? (view.me === "w" ? t.youAreWhite : t.youAreBlack) : "";
-    renderMoves(view);
+    if (openingFor?.record !== record || openingFor.at !== at) openingFor = { record, at, opening: openingOf(record.fens.slice(1, MAX_PLY + 1), at) };
+    renderOpening(opening, openingFor.opening, t);
+    moves.render(record, at);
+    reviewBar.render(view.plies);
     renderActions(view);
+    const sound = prefs.get().sound;
+    mute.textContent = sound ? "\u{1F50A}" : "\u{1F507}";
+    mute.setAttribute("aria-pressed", String(sound));
+    const end = view.end;
+    gameOver.render(view, end ? `${view.plies}|${end.why}|${end.result}|${record.fens[1] ?? ""}` : "", boardHadFocus);
     announce(view);
+    // Sounds: a change of the live game; else a step forward of the review (no end sound for that).
+    const live = soundOf(seen, view);
+    if (live) sounds.play(live);
+    else if (seen && view.plies === seen.plies && shown.plies === shownPly + 1) sounds.play(soundOf({ plies: shownPly, phase: shown.phase, ended: true }, shown));
+    seen = { plies: view.plies, phase: view.phase, ended: Boolean(view.end) };
+    shownPly = shown.plies;
   }
 
   function announce(view: View): void {
@@ -160,28 +210,6 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     if (lastPlies >= 0 && end && end !== lastEnd) announcer.say(end);
     lastEnd = end;
     lastPlies = view.plies;
-  }
-
-  function renderMoves(view: View): void {
-    if (view.plies === movesShown) return;
-    movesShown = view.plies;
-    const sans = game.history();
-    const items: HTMLElement[] = [];
-    for (let i = 0; i < sans.length; i += 2) {
-      const li = el("li", "move");
-      li.append(el("span", "no", `${i / 2 + 1}.`), el("span", `san${i === sans.length - 1 ? " current" : ""}`, sans[i]));
-      if (sans[i + 1]) li.append(el("span", `san${i + 1 === sans.length - 1 ? " current" : ""}`, sans[i + 1]));
-      items.push(li);
-    }
-    moves.replaceChildren(...items);
-    moves.hidden = sans.length === 0;
-    showNewestMove();
-  }
-
-  /** The newest move in view, in either layout (the row scrolls sideways, the column down). */
-  function showNewestMove(): void {
-    moves.scrollTop = moves.scrollHeight;
-    moves.scrollLeft = document.documentElement.dir === "rtl" ? -moves.scrollWidth : moves.scrollWidth;
   }
 
   function statusText(view: View): string {
@@ -207,10 +235,10 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     }
   }
 
-  const button = (label: string, run: () => void, className = "") => {
+  const button = (label: string, run: (b: HTMLButtonElement) => void, className = "") => {
     const b = el("button", `act ${className}`.trim(), label);
     b.type = "button";
-    b.addEventListener("click", run);
+    b.addEventListener("click", () => run(b));
     return b;
   };
 
@@ -226,6 +254,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
       );
       offerCard.hidden = !offered;
     }
+    const liveHadFocus = actions.querySelector(".live") === document.activeElement;
+    if (review.reviewing()) out.push(button(t.backToLive, () => review.live(), "live"));
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.newGame, () => void game.newGame()));
     if (view.phase === "playing") {
       const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw());
@@ -245,10 +275,45 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
       );
     } else resignArmed = false;
     if (view.phase === "over" || view.phase === "out-of-step") out.push(button(t.newGame, () => void game.newGame(), "primary"));
+    if (view.end && view.phase !== "alone") out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
+    if (view.phase === "alone" && view.plies > 0) out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
     const hadFocus = actions.contains(document.activeElement) || (cardHadFocus && offerCard.hidden);
     actions.replaceChildren(...out);
-    if (hadFocus) (actions.querySelector<HTMLButtonElement>(".danger") ?? actions.querySelector<HTMLButtonElement>("button"))?.focus();
+    if (liveHadFocus && !review.reviewing()) toMoves();
+    else if (hadFocus) (actions.querySelector<HTMLButtonElement>(".danger") ?? actions.querySelector<HTMLButtonElement>("button"))?.focus();
   }
+
+  // ---------- keys ----------
+
+  function key(event: KeyboardEvent): void {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest(".backdrop, .promo, input, textarea, select")) return;
+    const page = event.key === "PageUp" || event.key === "PageDown";
+    if (!page && target?.closest(".board")) return;
+    const inList = moves.element.contains(document.activeElement);
+    switch (event.key) {
+      case "ArrowLeft":
+      case "PageUp":
+        review.prev();
+        break;
+      case "ArrowRight":
+      case "PageDown":
+        review.next();
+        break;
+      case "Home":
+        review.first();
+        break;
+      case "End":
+        review.live();
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    if (inList) toMoves();
+  }
+  document.addEventListener("keydown", key);
 
   // ---------- layout ----------
 
@@ -263,13 +328,14 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const layout = wide ? "wide" : "narrow";
     if (app.dataset.layout !== layout) {
       app.dataset.layout = layout;
-      showNewestMove();
+      moves.render(game.record(), review.ply());
     }
   }
   fit();
   window.addEventListener("resize", fit);
 
   const offChange = game.subscribe(render);
+  const offReview = review.subscribe(render);
   const offPrefs = prefs.subscribe((p) => {
     board.setPrefs(p);
     render();
@@ -288,8 +354,12 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   render();
   return () => {
     offChange();
+    offReview();
     offPrefs();
     offNotice();
+    review.stop();
+    sounds.stop();
+    document.removeEventListener("keydown", key);
     window.removeEventListener("resize", fit);
     board.destroy();
     clearTimeout(noticeTimer);
