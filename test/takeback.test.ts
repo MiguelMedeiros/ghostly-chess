@@ -1,0 +1,217 @@
+// covers: apps.chess
+// Takebacks (the "takeback" feature, 2.2.0): an ask undoes the asker's last move, one ply or two; on accept both sides
+// cut the moves and restore both clocks from k; the epoch tb in sync recovers an accept the asker never got.
+import { describe, expect, it, vi } from "vitest";
+import type { SavedGame } from "../src/game.ts";
+import { clocksAfter } from "../src/clock.ts";
+import { encodeMessage, type Message } from "../src/protocol.ts";
+import { open, play, settle, startChat, type Side } from "./sides.ts";
+import { play as playTimed, record, timedGame, WALL0 } from "./link.ts";
+
+vi.setConfig({ testTimeout: 30_000 });
+
+const saved = (side: Side) => JSON.parse(side.broker.stored.get("game")!) as SavedGame;
+const sent = (side: Side, k: string) => side.broker.sent.filter((f) => (f as { k?: string }).k === k) as Record<string, unknown>[];
+async function from(side: Side, ...messages: Message[]): Promise<void> {
+  for (const message of messages) side.broker.inject(encodeMessage(message));
+  await settle(side);
+}
+
+describe("a takeback", () => {
+  it("undoes one ply when asked before the contact replied", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3");
+    expect(white.game.view().canTakeback).toBe(true);
+    await white.game.takeback();
+    await settle(white, black);
+    expect(sent(white, "takeback")).toEqual([expect.objectContaining({ n: 2, o: "ask" })]);
+    expect(white.game.view().takeback).toBe("me");
+    expect(black.game.view().takeback).toBe("peer");
+    await black.game.answerTakeback(true);
+    await settle(white, black);
+    for (const side of [white, black]) {
+      expect(saved(side).m).toEqual(["e2e4", "e7e5"]);
+      expect(saved(side).tb).toBe(1);
+      expect(saved(side).q).toBeUndefined();
+      expect(side.game.view().takeback).toBeUndefined();
+      expect(side.notices).toEqual(["taken-back"]);
+    }
+    expect(white.game.view().canMove).toBe(true);
+    // The game goes on from there.
+    await play(sides, "d2d4");
+    expect(saved(black).m).toEqual(["e2e4", "e7e5", "d2d4"]);
+  });
+
+  it("undoes two plies when asked after the contact replied", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3", "b8c6");
+    await white.game.takeback();
+    await settle(white, black);
+    expect(sent(white, "takeback")).toEqual([expect.objectContaining({ n: 2, o: "ask" })]);
+    await black.game.answerTakeback(true);
+    await settle(white, black);
+    for (const side of [white, black]) expect(saved(side).m).toEqual(["e2e4", "e7e5"]);
+    expect(white.game.view().turn).toBe("w");
+    expect(white.game.view().canMove).toBe(true);
+  });
+
+  it("keeps the game as it was when declined, and the asker may not ask again until it moves", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3");
+    const before = JSON.stringify(saved(black));
+    await white.game.takeback();
+    await settle(white, black);
+    await black.game.answerTakeback(false);
+    await settle(white, black);
+    expect(JSON.stringify(saved(black))).toBe(before);
+    expect(saved(white).m).toEqual(["e2e4", "e7e5", "g1f3"]);
+    expect(saved(white).q).toBeUndefined();
+    expect(white.notices).toEqual(["takeback-declined"]);
+    // One ask per own move.
+    expect(white.game.view().canTakeback).toBe(false);
+    await play(sides, "b8c6", "f1c4");
+    expect(white.game.view().canTakeback).toBe(true);
+  });
+
+  it("lapses on any move, and ignores a stale ask (an old n) after a move", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3");
+    await white.game.takeback();
+    await settle(white, black);
+    // Black moves instead of answering: the ask lapses on both sides.
+    await play(sides, "b8c6");
+    expect(white.game.view().takeback).toBeUndefined();
+    expect(black.game.view().takeback).toBeUndefined();
+    expect(saved(white).q).toBeUndefined();
+    const g = saved(black).g;
+    // The same ask again, and asks naming plies that are not White's last move: none is shown.
+    await from(black, { k: "takeback", g, n: 2, o: "ask" }, { k: "takeback", g, n: 0, o: "ask" }, { k: "takeback", g, n: 3, o: "ask" });
+    expect(black.game.view().takeback).toBeUndefined();
+    // An accept for an ask White no longer holds changes nothing.
+    const before = JSON.stringify(saved(white));
+    await from(white, { k: "takeback", g, n: 2, o: "accept" });
+    expect(JSON.stringify(saved(white))).toBe(before);
+  });
+
+  it("is not offered before this side has moved, nor to a contact whose Chess has no takebacks", async () => {
+    const sides = await startChat();
+    expect(sides.white.game.view().canTakeback).toBe(false);
+    expect(sides.black.game.view().canTakeback).toBe(false);
+    await play(sides, "e2e4");
+    expect(sides.white.game.view().canTakeback).toBe(true);
+    // The contact's hello now names no takeback (a 2.1.0): off, and its asks are ignored.
+    await from(sides.white, { k: "hello", pv: 2, f: ["clock"] });
+    expect(sides.white.game.view().canTakeback).toBe(false);
+    await from(sides.white, { k: "takeback", g: saved(sides.white).g, n: 1, o: "ask" });
+    expect(sides.white.game.view().takeback).toBeUndefined();
+  });
+
+  it("goes again when the asker's accept was lost as it closed: its next sync has the older tb, and the accept and a sync answer it", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3");
+    await white.game.takeback();
+    await settle(white, black);
+    // Black accepts; White's Chess closes before the accept arrives, so it is lost.
+    await black.game.answerTakeback(true);
+    white.game.stop();
+    white.broker.shutdown();
+    await settle(black);
+    expect(saved(black).m).toEqual(["e2e4", "e7e5"]);
+    expect(saved(white).m).toEqual(["e2e4", "e7e5", "g1f3"]);
+    expect(saved(white).q).toBe(2);
+    const accepts = sent(black, "takeback").length;
+    const back = await open(white.broker);
+    await settle(back, black);
+    for (const side of [back, black]) {
+      expect(saved(side).m).toEqual(["e2e4", "e7e5"]);
+      expect(saved(side).tb).toBe(1);
+      expect(side.game.view().phase).toBe("playing");
+    }
+    expect(saved(back).q).toBeUndefined();
+    // Black answered White's older tb with the accept again.
+    expect(sent(black, "takeback").slice(accepts)).toContainEqual(expect.objectContaining({ n: 2, o: "accept" }));
+  });
+
+  it("answers a sync with the older tb with the accept and a sync, and the asker that holds q applies it", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3");
+    await white.game.takeback();
+    await settle(white, black);
+    // Black accepts while White's side is scripted from here: White never hears it.
+    white.game.stop();
+    await black.game.answerTakeback(true);
+    await settle(black);
+    const w = saved(white);
+    const count = black.broker.sent.length;
+    // White's sync, as it would send it on its next open: its moves, and tb 0.
+    await from(black, { k: "sync", g: w.g, s: [w.s[0], w.s[1]], m: w.m });
+    const answer = black.broker.sent.slice(count) as Record<string, unknown>[];
+    expect(answer.map((f) => f.k)).toEqual(["takeback", "sync"]);
+    expect(answer[0]).toMatchObject({ o: "accept", n: 2 });
+    expect(answer[1]).toMatchObject({ tb: 1, m: "e2e4 e7e5" });
+    expect(black.notices).toEqual(["taken-back"]);
+    // White's Chess, opened again, still holds q: the accept applies.
+    const back = await open(white.broker);
+    await settle(back, black);
+    expect(saved(back).m).toEqual(["e2e4", "e7e5"]);
+    expect(saved(back).tb).toBe(1);
+  });
+
+  it("is out of step on a sync with a higher tb and no matching ask", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3");
+    const b = saved(black);
+    await from(white, { k: "sync", g: b.g, s: [b.s[0], b.s[1]], m: ["e2e4", "e7e5"], tb: 1 });
+    expect(white.game.view().phase).toBe("out-of-step");
+    expect(saved(white).m).toEqual(["e2e4", "e7e5", "g1f3"]);
+  });
+});
+
+describe("a takeback in a timed game", () => {
+  it("restores both clocks from k for that ply, and the side to move's timer starts at the accept", async () => {
+    const { link, white, black } = await timedGame([180, 2]);
+    await playTimed(link, white, "e2e4");
+    await playTimed(link, black, "e7e5");
+    await link.advance(5_000);
+    await playTimed(link, white, "g1f3");
+    await link.advance(7_000);
+    await playTimed(link, black, "b8c6");
+    await link.advance(3_000);
+    await playTimed(link, white, "f1c4");
+    const k = record(white).k!;
+    await white.game.takeback();
+    await link.advance(4_000);
+    await black.game.answerTakeback(true);
+    const acceptAt = link.clock.now;
+    await link.advance(30, 10);
+    // White asked after its own move: one ply back, to 4 plies; both hold k for them, and the clocks they make.
+    const expected = clocksAfter([180, 2], k.slice(0, 4));
+    for (const side of [white, black]) {
+      expect(record(side).m).toHaveLength(4);
+      expect(record(side).k).toEqual(k.slice(0, 4));
+      expect(side.game.clocks()!.b).toBe(expected[1]);
+    }
+    // White's turn runs from the accept: 30 ms on, on both screens (Black's from its own accept).
+    expect(expected[0] - white.game.clocks()!.w).toBeLessThanOrEqual(40);
+    expect(expected[0] - black.game.clocks()!.w).toBeLessThanOrEqual(40);
+    expect(record(white).tw).toBe(WALL0 + acceptAt + 10);
+    expect(record(black).ts).toBe(WALL0 + acceptAt);
+    await link.advance(2_000);
+    expect(expected[0] - white.game.clocks()!.w).toBeGreaterThanOrEqual(2_000);
+    expect(expected[0] - white.game.clocks()!.w).toBeLessThanOrEqual(2_100);
+    expect(Math.abs(white.game.clocks()!.w - black.game.clocks()!.w)).toBeLessThanOrEqual(50);
+    // And the game goes on, timed.
+    await playTimed(link, white, "f1b5");
+    expect(record(black).m.at(-1)).toBe("f1b5");
+    expect(white.notices.filter((n) => n !== "taken-back")).toEqual([]);
+    expect(black.notices.filter((n) => n !== "taken-back")).toEqual([]);
+  });
+});
+

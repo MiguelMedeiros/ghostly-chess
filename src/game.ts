@@ -1259,6 +1259,8 @@ export class ChessController {
    * names "takeback"); with an older one, any move clears it, as in Chess 1.0.2.
    */
   private moved(game: SavedGame, mover: Colour, uci: string): SavedGame {
+    // The contact's ask, not taken: never shown again, also if the frame came again.
+    if (this.peerAsk !== null) this.refused = this.key(game, this.peerAsk);
     this.peerAsk = null;
     const offerer = game.d === "me" ? game.me : game.d === "peer" ? other(game.me) : undefined;
     const next = without(game, "q");

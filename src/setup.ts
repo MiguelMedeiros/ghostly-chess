@@ -45,9 +45,11 @@ export function termsWords(tc: TimeControl | undefined, t: Strings): string {
   return fill(tc[1] ? t.tc_wordsInc : t.tc_words, { kind: kindWord(kindOf(tc), t), min, inc: tc[1] });
 }
 
-/** The contact's invitation in words: "Your contact invites you: Unlimited". */
+/** The contact's invitation in words: "Your contact invites you: Unlimited", or "Rematch? (5 | 0)". */
 export function invitationWords(invitation: Pick<NonNullable<View["invitation"]>, "tc" | "rematch">, t: Strings): string {
-  return fill(invitation.rematch ? t.rematchYou : t.invitesYou, { terms: termsWords(invitation.tc, t) });
+  if (!invitation.rematch) return fill(t.invitesYou, { terms: termsWords(invitation.tc, t) });
+  const tc = invitation.tc;
+  return fill(t.rematchYou, { terms: tc ? `${Math.round((tc[0] / 60) * 100) / 100} | ${tc[1]}` : t.tc_unlimited });
 }
 
 /** A preset's short label on its button: "3 | 2", or "Unlimited". */

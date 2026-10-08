@@ -749,6 +749,147 @@ describe.each(MODES)("ending a game, $mode", ({ mode, version }) => {
   });
 });
 
+describe("draw offers in version 2 (both sides on 2.2.0)", () => {
+  it("keeps this side's offer through its own next move, and both sides agree on it", async () => {
+    const sides = await start();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5");
+    await white.game.offerDraw();
+    await settle(white, black);
+    await play(sides, "g1f3");
+    expect(white.game.view().drawOffer).toBe("me");
+    expect(black.game.view().drawOffer).toBe("peer");
+    expect(white.game.view().drawAt).toBe(2);
+    expect(black.game.view().drawAt).toBe(2);
+    expect(sides.white.broker.sent.filter((m) => (m as { k: string }).k === "draw")).toEqual([expect.objectContaining({ o: "offer", n: 2 })]);
+    await black.game.answerDraw(true);
+    await settle(white, black);
+    for (const side of [white, black]) {
+      expect(side.game.view().end).toEqual({ result: "1/2-1/2", why: "agreed" });
+      expect(side.game.view().plies).toBe(3);
+      expect(side.notices).toEqual([]);
+    }
+  });
+
+  it("lets the offer lapse when the contact moves instead of answering, on both sides", async () => {
+    const sides = await start();
+    const { white, black } = sides;
+    await play(sides, "e2e4");
+    await white.game.offerDraw(); // on Black's turn, after White's own move
+    await settle(white, black);
+    expect(black.game.view().drawOffer).toBe("peer");
+    await play(sides, "e7e5");
+    for (const side of [white, black]) expect(side.game.view().drawOffer).toBeUndefined();
+    // One offer per own move: White may offer again only after its next move.
+    expect(white.game.view().canDraw).toBe(false);
+    await play(sides, "g1f3");
+    expect(white.game.view().canDraw).toBe(true);
+  });
+
+  it("takes the contact's offer from a sync one ply back when that ply is the offerer's", async () => {
+    const sides = await start();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5");
+    await white.game.offerDraw();
+    // Black's Chess closes before it hears the offer, and White moves meanwhile.
+    black.game.stop();
+    black.broker.shutdown();
+    await settle(white);
+    expect(await white.game.move("g1", "f3")).toBe(true);
+    const b = await open(black.broker);
+    await settle(white, b);
+    expect(saved(b).m).toEqual(["e2e4", "e7e5", "g1f3"]);
+    expect(b.game.view().drawOffer).toBe("peer");
+    expect(b.game.view().drawAt).toBe(2);
+    await b.game.answerDraw(true);
+    await settle(white, b);
+    for (const side of [white, b]) expect(side.game.view().end).toEqual({ result: "1/2-1/2", why: "agreed" });
+  });
+
+  it("keeps 1.0.2's rule in version 1: any move clears an offer", async () => {
+    const sides = await start("1.0.2");
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5");
+    await white.game.offerDraw();
+    await settle(white, black);
+    expect(black.game.view().drawOffer).toBe("peer");
+    await play(sides, "g1f3");
+    for (const side of [white, black]) expect(side.game.view().drawOffer).toBeUndefined();
+    expect(white.broker.sent.filter((m) => (m as { k: string }).k === "draw")).toEqual([{ p: "chess", v: 1, k: "draw", g: saved(white).g, o: "offer" }]);
+  });
+
+  it("clears an offer on any move with a contact on 2.1.0, as 1.0.2 does, so the two sides never disagree", async () => {
+    const [a, b] = chatPair("2.1.0");
+    const ana = await open(a);
+    b.launch();
+    const bob: Side = { broker: b, game: new ChessController(b, { features: ["clock"] }), notices: [] };
+    await bob.game.start();
+    await settle(ana, bob);
+    await agree(ana, bob);
+    const white = ana.game.view().me === "w" ? ana : bob;
+    const black = white === ana ? bob : ana;
+    await play({ white, black }, "e2e4", "e7e5");
+    await white.game.offerDraw();
+    await settle(white, black);
+    await play({ white, black }, "g1f3");
+    for (const side of [white, black]) expect(side.game.view().drawOffer).toBeUndefined();
+  });
+});
+
+describe("abort", () => {
+  it("is offered only before ply 2, to either side, and ends with no winner", async () => {
+    const sides = await start();
+    const { white, black } = sides;
+    expect(white.game.view().canAbort).toBe(true);
+    expect(black.game.view().canAbort).toBe(true);
+    await play(sides, "e2e4");
+    expect(black.game.view().canAbort).toBe(true);
+    await black.game.abort();
+    await settle(white, black);
+    for (const side of [white, black]) {
+      expect(side.game.view().end).toEqual({ result: "*", why: "aborted" });
+      expect(side.game.view().phase).toBe("over");
+      expect(saved(side).x).toEqual({ why: "aborted" });
+      expect(side.notices).toEqual([]);
+    }
+    const late = await start();
+    await play(late, "e2e4", "e7e5");
+    expect(late.white.game.view().canAbort).toBe(false);
+    await late.white.game.abort();
+    await settle(late.white, late.black);
+    expect(late.white.game.view().end).toBeUndefined();
+  });
+
+  it("drops a move that crossed the abort, so both sides end with one history", async () => {
+    const sides = await start();
+    const { white, black } = sides;
+    await play(sides, "e2e4");
+    // Both act at once: White aborts while Black plays its first move.
+    await Promise.all([white.game.abort(), black.game.move("e7", "e5")]);
+    await settle(white, black);
+    for (const side of [white, black]) {
+      expect(side.game.view().end).toEqual({ result: "*", why: "aborted" });
+      expect(saved(side).m).toEqual(["e2e4"]);
+      expect(side.notices).toEqual([]);
+    }
+  });
+
+  it("is a bad message in a sync at ply 2 or later", async () => {
+    const sides = await start();
+    await play(sides, "e2e4", "e7e5");
+    const s = saved(sides.black);
+    sides.black.broker.inject(encodeMessage({ k: "sync", g: s.g, s: [s.s[1], s.s[0]], m: s.m, x: { why: "aborted" } }));
+    await settle(sides.black);
+    expect(sides.black.notices).toEqual(["bad-message"]);
+    expect(sides.black.game.view().end).toBeUndefined();
+  });
+
+  it("is not offered to Chess 1.0.2: Resign stays", async () => {
+    const sides = await start("1.0.2");
+    expect(sides.white.game.view().canAbort).toBe(false);
+  });
+});
+
 describe("alone", () => {
   it("plays both sides on one device and keeps the game", async () => {
     const broker = new MockBroker("solo", "1.0.0", false);
