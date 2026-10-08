@@ -5,7 +5,8 @@
 // a move made while 1.0.2 was closed reaches it.
 import type { Square } from "chess.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { ChessController, type SavedGame } from "../src/game.ts";
+import { ChessController, OWN_FEATURES, type SavedGame } from "../src/game.ts";
+import { presetState } from "../src/setup.ts";
 import { PrefsStore } from "../src/prefs.ts";
 import { en } from "../src/strings.ts";
 import { mountChess } from "../src/ui.ts";
@@ -161,6 +162,32 @@ describe("today's Chess with Chess 1.0.2", () => {
     expectOnly102Frames(now);
     expect([...old.notices, ...back.notices]).not.toContain("newer-version");
     expect([...old.notices, ...back.notices]).toEqual([]);
+  });
+
+  it("offers 1.0.2 no timed game, and never sends it an ack, a t or a time control", async () => {
+    const [a, b] = chatPair("1.0.2", "2.1.0");
+    const old = await open102(a);
+    const now = await openNew(b);
+    await settle(old, now);
+    const nowGame = now.game as ChessController;
+    const view = nowGame.view();
+    expect(view.features).toEqual([]);
+    expect(presetState([300, 0], view, OWN_FEATURES, en)).toEqual({ enabled: false, reason: "Your contact needs to update Chess (they have 1.0.2)" });
+    await play(old, now, "e2e4", "e7e5", "g1f3");
+    for (let i = 0; i < 3; i++) await nowGame.tick();
+    expect(nowGame.clocks()).toBeUndefined();
+    await nowGame.resign();
+    await settle(old, now);
+    await nowGame.newGame();
+    await nowGame.invite([300, 0]);
+    await settle(old, now);
+    for (const frame of now.broker.sent as Record<string, unknown>[]) {
+      expect(frame.k, JSON.stringify(frame)).not.toBe("ack");
+      expect(frame.k, JSON.stringify(frame)).not.toBe("flag");
+      expect("t" in frame || "tc" in frame || (frame.k === "sync" && "c" in frame), JSON.stringify(frame)).toBe(false);
+    }
+    expectOnly102Frames(now);
+    expect(old.notices).toEqual([]);
   });
 
   it("continues a game 1.0.2 saved mid-way after one side updates: the record migrates and the game id stays", async () => {

@@ -166,7 +166,7 @@ export function clkText(ms: number): string {
 
 /** The time a move took, in the page's language: "3.2s", "1:05". */
 export function formatSpent(ms: number, locale?: string): string {
-  if (ms >= 60_000) return clkText(ms).replace(/^0:/, "");
+  if (ms >= 60_000) return clkText(ms).replace(/^0:0?/, "");
   try {
     return new Intl.NumberFormat(locale, { style: "unit", unit: "second", unitDisplay: "narrow", maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(Math.floor(ms / 100) / 10);
   } catch {

@@ -86,7 +86,7 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .strip .clock.running { background: var(--fg); color: var(--bg); }
 .strip .clock.low { color: var(--danger); }
 .strip .clock.low.running { background: var(--danger); color: #fff; }
-.strip .silent { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; color: var(--danger); }
+.strip .name.silent { font-size: 13px; font-weight: 400; color: var(--danger); }
 
 .panel { display: flex; flex-direction: column; gap: 6px; width: var(--side); min-width: 0; }
 .app[data-layout="wide"] .panel { width: 240px; max-height: calc(var(--side) + 64px); }

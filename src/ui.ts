@@ -252,18 +252,17 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const name = view.phase === "alone" ? (colour === "w" ? t.whiteName : t.blackName) : view.me ? (colour === view.me ? t.you : t.contact) : node === bottom ? t.you : t.contact;
     const dot = el("span", `dot ${view.me || view.phase === "alone" ? colour : "unknown"}`);
     dot.setAttribute("aria-hidden", "true");
-    const label = el("span", "name", name);
+    // A timed game, the contact silent on its turn: the strip says so in place of its name (the words name it).
+    const silent = Boolean(view.peerSilent && view.me && colour !== view.me);
+    const label = el("span", silent ? "name silent" : "name", silent ? t.peerSilent : name);
     const taken = record.taken(at)[colour];
     const material = record.material(at);
     const set = prefs.get().pieces;
-    const silent = Boolean(view.peerSilent && view.me && colour !== view.me);
     const key = `${name}|${dot.className}|${view.turn === colour && !view.end}|${taken.join("")}|${material}|${set}|${silent}`;
     if (node.dataset.key === key) return;
     node.dataset.key = key;
     node.classList.toggle("to-move", view.turn === colour && !view.end && view.phase !== "toss");
-    const parts: HTMLElement[] = [dot, label, takenNode(colour, taken, material, set, t)];
-    if (silent) parts.push(el("span", "silent", t.peerSilent));
-    node.replaceChildren(...parts, clockOf.get(node)!);
+    node.replaceChildren(dot, label, takenNode(colour, taken, material, set, t), clockOf.get(node)!);
   }
 
   // ---------- clocks ----------

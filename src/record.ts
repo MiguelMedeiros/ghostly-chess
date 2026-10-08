@@ -55,6 +55,11 @@ export interface SavedGame {
   pc?: number;
   /** The ply count at which this side sent or received a clock claim. */
   fl?: number;
+  /**
+   * How much more time the contact's clock says it has than this side's view of it, after a clamp (C5). Its later
+   * reports are read less this, so the two move lists differ by exactly the clamp, and only at the clamped ply.
+   */
+  ko?: number;
 }
 
 /** A toss in progress, under "flip": the salt survives a reload, so the toss can finish with the same terms. */
@@ -120,6 +125,7 @@ export function readGame(value: unknown): SavedGame | null {
   if (isTime(v.ts)) game.ts = v.ts;
   for (const key of ["dn", "q", "pc", "fl"] as const) if (isInt(v[key], 0, MAX_PLIES)) game[key] = v[key] as number;
   if (isInt(v.tb, 0, MAX_MS)) game.tb = v.tb;
+  if (game.tc && isInt(v.ko, 1, MAX_MS)) game.ko = v.ko;
   if (!game.d) delete game.dn;
   return game;
 }

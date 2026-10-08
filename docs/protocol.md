@@ -63,7 +63,7 @@ Ends add `{"why": "time", "by": colour}`, `{"why": "aborted"}` (only before ply 
 result).
 
 Every 2.x reads every 2.x frame. What a side does with them is gated by the features both hellos name: `clock`,
-`takeback`, `rematch`, `abort` and `names`. A build names only what it implements (2.0.0 names none yet), so a later
+`takeback`, `rematch`, `abort` and `names`. A build names only what it implements (2.0.0 names none, 2.1.0 `clock`), so a later
 Chess never sends it a clock or a takeback it cannot run. The gate holds on receipt too: an invitation with `tc`
 without `clock` named by both, or with `r` without `rematch`, is shown but cannot be accepted (Accept is off, with
 the reason), and a sync's `time` end needs `clock`, its `aborted` end `abort`.
@@ -165,8 +165,56 @@ comes in a version 1 frame.
 
   Anything else is a bad message and changes nothing.
 
-The clock rules (`t`, `ack`, `flag`, `dispute`, `c`) and takebacks and rematches (`takeback`, `tb`, `r`) come with
-the features that use them.
+Takebacks and rematches (`takeback`, `tb`, `r`) come with the features that use them.
+
+## Clocks (the `clock` feature, Chess 2.1.0)
+
+A timed game is one whose terms have `tc`, agreed with `clock` named by both hellos. Plies are numbered from 0. P is
+the mover's time before its ply n, I the increment, both in ms. The code is `src/clock.ts` (the arithmetic) and
+`src/game.ts` (the frames).
+
+- **C1. Increments.** Plies 0 and 1 are untimed and carry no `t`. From ply 2 the increment is added to the mover after
+  each move. Each side keeps `k`, the mover's time after each ply: k[0] = k[1] = base, and k[n] = P + I - spent, with
+  P = k[n-2]. The time a move took, in the move list, is k[n-2] + I - k[n].
+- **C2. Own turn.** A side times its own turn, from the moment it applied the contact's ply (live, or from a sync) to
+  its own move, with a monotonic clock while open and the wall time `tw` (kept at turn start) across a reload or a
+  close: its clock runs while its Chess is closed on its turn. Its `move` carries `t`, its own time after the move.
+- **C3. Grace.** A round trip runs from this side's send of a frame carrying its ply k to the first `ack {n: k+1}`.
+  G = 2 x the median of the last 5, within [300 ms, Gmax], Gmax = 1 s when base < 180 s and 2 s otherwise, and Gmax
+  before any sample. Delaying acks only inflates G up to Gmax.
+- **C4. Observer bound.** `ts` is when this side first sent a frame carrying its ply k (a `move`, or the `sync` when
+  the move was made while the contact was away). It moves to a later send only when the contact's own `sync` showed it
+  lacked that ply; a resync after a bad frame never moves it. The side to move sends `ack {g, n}` ("I hold n plies")
+  right after applying a ply (before saving it) and every 2 s on its own turn while the contact is open: each one, and
+  the `move` frame itself (frames are never queued), proves the mover had not moved yet. E = arrival of the latest
+  proof - ts. E never starts at an ack. A ply adopted from a `sync` is bounded only by the latest ack before it.
+- **C5. Checks on a reported t** (`move.t`, or `sync.c[mover]` for a ply caught up from a sync): t <= P + I, else it
+  is clamped to P + I; and spent = P + I - t >= E - G, else this side keeps P + I - (E - G). A clamp shows "Your
+  contact's clock looks off" once per game. A move is never refused for timing. Each side keeps its own measure of its
+  own clock, and a later `sync.c` never raises this side's view of the contact's; the contact's later reports are read
+  less the clamp (`ko` in the record), so the two move lists differ by exactly the clamp, at the clamped ply only.
+- **C6. Self-flag.** When its own time reaches 0 on its turn, a side locks its board and sends `flag {g, n, by: self}`.
+  The result is a loss, or a draw when the opponent has only K, K+B or K+N (chess.com's rule; FIDE would also ask
+  whether any helpmate exists). A side that comes back past its time flags at once; its `sync` carries the end.
+- **C7. Claim.** The observer sends `flag {g, n, by: mover}` only with a proof whose E > P + G, or when its clamped
+  view of the mover is at or below 0; wall time alone never makes a claim. The mover answers from its own clock for
+  ply n: now when it holds n plies, at its move when it already made ply n. With less than G left it accepts with
+  `flag {by: self, n}`; otherwise it sends `dispute {g, n}` and a `sync`. Either way the game ends at ply n on both
+  sides (on time, or "clocks disagree" with no result): a move that crossed the claim is dropped by its mover and held
+  unapplied by the claimer, then discarded. A claim not yet answered goes again when the mover opens Chess.
+- **C8. Away.** A side may move while the contact's Chess is closed; the contact's turn starts when it applies that
+  ply. If the side to move is away, or silent (no frame for 10 s: "Your contact's Chess isn't answering"), there is
+  no proof and so no claim: this side shows that side's clock running as an estimate, P - (now - ts), and past P + G
+  keeps a pending claim `pc`: "Their time is running out. It ends when their Chess is back." It goes when a proof
+  holds.
+- **C9. Catch-up.** A `sync` carries `c = [white ms, black ms]` after the last ply: after a missed ply, c[mover] is
+  that move's t, so both lists show the same times. With `k`, `tw` and `ts` both sides restart their timers, and the
+  screens agree to within one-way latency unless C5 clamped.
+
+Trust: these are honest-peer clocks with bounds. Unseen, a modified client can shave up to G per move, and can stop
+its clock while it looks offline (no acks, or a peer that keeps saying it never got the move). Beyond that the other
+side sees the warning or makes a claim, and refusing a valid claim turns a loss on time into no result, never a win.
+No peer-to-peer design does better without a trusted clock.
 
 ## Storage
 
@@ -174,7 +222,7 @@ Per chat, in the broker's storage:
 
 | Key | Value |
 |---|---|
-| `game` | `{v: 2, g, me, s, dv, sd?, tc?, r?, m, k?, tw?, ts?, x?, d?, dn?, tb?, q?, pc?, fl?}`: `dv` is the deal (1 or 2). A 1.0.2 record (`v: 1`) reads as `dv: 1`, untimed, same game id |
+| `game` | `{v: 2, g, me, s, dv, sd?, tc?, r?, m, k?, tw?, ts?, x?, d?, dn?, tb?, q?, pc?, fl?, ko?}`: `dv` is the deal (1 or 2). A 1.0.2 record (`v: 1`) reads as `dv: 1`, untimed, same game id. The clocks' part (`k`, `tw`, `ts`, `pc`, `fl`, `ko`) is written at turn boundaries, never on a clock tick |
 | `flip` | `{v: 2, salt, dv, peer?, a, tc?, r?}`: the toss going, the deal it is for and the invitation's terms, so a reload sends the same seek. A 1.0.2 record (`v: 1`) reads as `dv: 1` |
 | `prev` | `{g, me, tc?}`: the last finished game, for a rematch's colours |
 | `prefs` | The settings |

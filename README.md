@@ -45,7 +45,7 @@ versions, in the release's pull request or issue:
   a move.
 - **Desktop's WKWebView (macOS):** the same drag without scrolling, tap, tap or click, click, and the 560x640 chat-app
   window shows the whole board and its controls.
-- **Sounds:** after a tap inside the frame, moves are heard in the web runner (Chromium and Safari) and in Desktop's
+- **Sounds:** after a tap inside the frame, moves (and, in a timed game, the low-time warning) are heard in the web runner (Chromium and Safari) and in Desktop's
   app window (WKWebView); nothing before it. On an iPhone's web app the ring/silent switch mutes Web Audio: a known
   limit, not worked around.
 - **Copy PGN:** in the web runner and in Desktop, Copy either copies or leaves the PGN selected with the hint; on an
@@ -60,6 +60,7 @@ the same commit always gives the same bytes, so a build can be checked against a
 |---|---|
 | `src/game.ts` | The game: rules (chess.js), turns, invitations, sync and storage over the broker |
 | `src/protocol.ts` | The frames Chess sends (versions 1 and 2), and the checks on what a peer sends (untrusted) |
+| `src/clock.ts` | The clocks' pure model: presets, increments, the grace, the checks on a reported time, the claim test |
 | `src/negotiate.ts` | Which protocol is spoken with the contact's Chess, decided on each open |
 | `src/toss.ts` | Who plays white: a commit and reveal coin toss, and the deals that bind the game id (and the terms) |
 | `src/record.ts` | What is kept per chat, and how a Chess 1.0.2 record is read |
@@ -84,6 +85,7 @@ the same commit always gives the same bytes, so a build can be checked against a
 | `src/strings.ts`, `src/languages.ts` | Every string: English, then the 7 other languages |
 | `src/vendor/miniApp.ts` | The broker's types and limits, copied from Ghostly's `@ghostly/core/miniApp` (see its header) |
 | `test/mockBroker.ts` | A broker with the WISP's rules, for two sides of one chat |
+| `test/link.ts` | The same on a virtual clock, with latency, drops, rewrites and held sessions, for the clock tests |
 | `test/legacy/1.0.2/` | The Chess 1.0.2 controller, byte for byte, that `test/compat.test.ts` plays against (see its README) |
 | `test/browser/fixtures/chess-1.0.2.html` | The published Chess 1.0.2 page, which `test/browser/compat.spec.ts` plays against |
 | `ghostly-app.json` | The manifest, without `publisher`, `sequence` and `files` (the CLI writes those) |
@@ -93,7 +95,8 @@ the same commit always gives the same bytes, so a build can be checked against a
 
 Chess 2.0.0 speaks protocol 2 (invitations with terms, and room for clocks, takebacks and rematches) with a contact
 on 2.0.0 or later, and Chess 1.0.2's protocol, exactly, with an older one: the toss starts by itself and games are
-untimed. A game begun on 1.0.2 goes on after either side updates. `PROTO2_SINCE` in `src/protocol.ts` is the first
+untimed. Chess 2.1.0 adds the clocks (the `clock` feature): timed games need it on both sides, so a contact on 2.0.0
+or 1.0.2 is offered untimed games only, with the update hint. A game begun on 1.0.2 goes on after either side updates. `PROTO2_SINCE` in `src/protocol.ts` is the first
 version that speaks protocol 2, and `test/version.test.ts` keeps the manifest at or above it. See
 [docs/protocol.md](docs/protocol.md).
 

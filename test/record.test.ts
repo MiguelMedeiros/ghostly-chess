@@ -29,6 +29,10 @@ describe("the game record", () => {
     for (const key of ["tc", "r", "k", "tw", "dn", "fl", "sd", "x"]) expect(read, key).not.toHaveProperty(key);
     // A dv:1 game is untimed, whatever the record says.
     expect(readGame({ ...v2, dv: 1 })!.tc).toBeUndefined();
+    // The clamp offset of the contact's clock: kept in a timed game, a positive whole number of ms.
+    expect(readGame({ ...v2, ko: 7400 })!.ko).toBe(7400);
+    for (const ko of [0, -5, 1.5, "1"]) expect(readGame({ ...v2, ko })!, String(ko)).not.toHaveProperty("ko");
+    expect(readGame({ ...v2, dv: 1, ko: 7400 })!).not.toHaveProperty("ko");
   });
 
   it("drops a corrupt record, as before", () => {

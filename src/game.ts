@@ -20,6 +20,12 @@
  * an honest peer that fell out of step can catch up. Every draw, takeback, ack, flag and dispute names the ply count
  * n it is about; one whose g or n differs from this side's game is ignored.
  *
+ * Timed games (the "clock" feature, rules C1-C9 in docs/protocol.md, arithmetic in clock.ts): each side times its own
+ * turn and reports t with its move; the side to move acks; the observer bounds what the mover reports by what it saw
+ * from its own send (ts) to the mover's latest proof, claims only with a proof, and holds a move that crosses its
+ * claim until the claimed side answers. The page calls tick() a few times a second for the periodic part. What is kept
+ * (k, tw, ts, pc, fl, ko) is written at turn boundaries, never on a tick.
+ *
  * A `sync` is taken only as far as it is provable: the same game (its id comes from both salts and, in version 2,
  * the terms, and the salts must include this side's own), a history that is ours plus at most one legal ply of the
  * sender's, and a non-board end this side could have reached (see acceptEnd). Anything else is shown as "out of
@@ -286,6 +292,14 @@ function alignedK(game: SavedGame): number[] {
   const k = (game.k ?? []).slice(0, game.m.length);
   while (k.length < game.m.length) k.push(timeBefore(tc, k, k.length) + incrementAt(tc, k.length));
   return k;
+}
+
+/** A game record with this k and clamp offset (none when 0). */
+function withClock(game: SavedGame, clock: Pick<SavedGame, "k" | "ko">): SavedGame {
+  const next = { ...game, k: clock.k };
+  if (clock.ko) next.ko = clock.ko;
+  else delete next.ko;
+  return next;
 }
 
 /** A game record without these keys. */
@@ -1041,12 +1055,12 @@ export class ChessController {
     let next: SavedGame = { ...noOffer(game), m: [...game.m, uci] };
     if (game.tc) {
       // The move frame is itself a proof: it left within one-way latency of its arrival (C4).
-      const k = this.contactPly(game, n, t, this.tsMono === undefined ? undefined : this.mono() - this.tsMono);
-      if (!k) {
+      const clock = this.contactPly(game, n, t, this.tsMono === undefined ? undefined : this.mono() - this.tsMono);
+      if (!clock) {
         this.chess.undo();
         return this.claim(n, { n, m: uci });
       }
-      next = this.myTurn({ ...next, k });
+      next = this.myTurn(withClock(next, clock));
       // The ack goes before the save: it is what the contact times its own move by.
       await this.sendAck(next);
     }
@@ -1060,21 +1074,25 @@ export class ChessController {
    * or null when that view is at or below 0, or the proof is past its time (a claim, never a refusal). `E` is the
    * observer bound when there is a proof.
    */
-  private contactPly(game: SavedGame, n: number, t: number | undefined, E: number | undefined): number[] | null {
+  private contactPly(game: SavedGame, n: number, t: number | undefined, E: number | undefined): Pick<SavedGame, "k" | "ko"> | null {
     const tc = game.tc!;
     const k = alignedK(game);
+    const ko = game.ko ?? 0;
     if (!timedPly(n)) {
       k[n] = baseMs(tc);
-      return k;
+      return { k, ko: game.ko };
     }
     const P = timeBefore(tc, k, n);
     const I = incrementAt(tc, n);
     const G = this.grace();
-    const { view, clamped } = checkReported(t ?? P + I, P, I, E, G);
+    // Read less an earlier clamp: the contact's own clock stands that much above our view of it.
+    const reported = t === undefined ? P + I : t - ko;
+    const { view, clamped } = checkReported(reported, P, I, E, G);
     if (clamped) this.clockOff(game.g);
     if (mayClaim(E, P, G, view)) return null;
-    k[n] = view;
-    return k;
+    k[n] = Math.max(0, view);
+    const more = Math.min(2 ** 31 - 1, ko + Math.max(0, reported - k[n]));
+    return { k, ko: more > 0 ? more : undefined };
   }
 
   /** The contact's ply is applied: this side's turn starts now (C2), and our ply's bound is done with. */
@@ -1171,9 +1189,9 @@ export class ChessController {
         // Caught up from a sync (C9): its t is c[mover], bounded only by the latest ack before it (the move may have
         // been made while the link was down).
         const ack = this.lastAck?.n === n && this.tsMono !== undefined ? this.lastAck.at - this.tsMono : undefined;
-        const k = this.contactPly(game, n, sync.c?.[game.me === "w" ? 1 : 0], ack);
-        if (!k) return this.claim(n, { n, m: extra });
-        next = this.myTurn({ ...next, k });
+        const clock = this.contactPly(game, n, sync.c?.[game.me === "w" ? 1 : 0], ack);
+        if (!clock) return this.claim(n, { n, m: extra });
+        next = this.myTurn(withClock(next, clock));
         adopted = true;
       }
       this.chess = chess;
