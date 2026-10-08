@@ -87,10 +87,16 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .strip .clock.low { color: var(--danger); }
 .strip .clock.low.running { background: var(--danger); color: #fff; }
 .strip.silent .name { color: var(--danger); }
-/* A phone: a little tighter, so the contact's name and a few captures fit beside the clock at 320 px. */
+/*
+ * A phone: a little tighter, so the contact's name and a few captures fit beside the clock at 320 px, also in wider
+ * fonts (Linux's): smaller captures that overlap a little, and a clock as wide as its m:ss (it grows for more).
+ */
 .app[data-layout="narrow"] .strip { gap: 4px; }
 .app[data-layout="narrow"] .cap { width: 16px; height: 16px; }
+.app[data-layout="narrow"] .cap + .cap:not(.same) { margin-inline-start: -4px; }
 .app[data-layout="narrow"] .cap-glyph { font-size: 14px; line-height: 16px; }
+.app[data-layout="narrow"] .lead { margin-inline-start: 2px; }
+.app[data-layout="narrow"] .strip .clock { min-width: 56px; }
 
 .panel { display: flex; flex-direction: column; gap: 6px; width: var(--side); min-width: 0; }
 .app[data-layout="wide"] .panel { width: 240px; max-height: calc(var(--side) + 64px); }
