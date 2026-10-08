@@ -14,8 +14,14 @@ import { defineConfig, type Plugin } from "vite";
 
 const LICENSE_FILES = ["LICENSE", "LICENSE.md", "LICENSE.txt", "license", "LICENCE"];
 
-/** Notices of vendored assets the page carries, [title, file]: the pieces' BSD-3-Clause license. */
-export const ASSET_NOTICES: [string, string][] = [["Chess pieces \"cburnett\" (BSD-3-Clause)", "assets/pieces/cburnett/LICENSE"]];
+/**
+ * Notices of vendored assets the page carries, [title, file]: the pieces' BSD-3-Clause license, and a one-line credit
+ * for the opening names (CC0-1.0 asks for none; its legal text, assets/openings/COPYING.txt, stays in the repository).
+ */
+export const ASSET_NOTICES: [string, string][] = [
+  ["Chess pieces \"cburnett\" (BSD-3-Clause)", "assets/pieces/cburnett/LICENSE"],
+  ["Chess opening names (CC0-1.0)", "assets/openings/NOTICE"],
+];
 
 /** The notice block for the npm packages among these module ids, then the vendored assets'. */
 export function thirdPartyNotices(moduleIds: string[], assets: [string, string][] = ASSET_NOTICES): string {
