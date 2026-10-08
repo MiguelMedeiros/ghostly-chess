@@ -584,10 +584,11 @@ export class ChessController {
 
   /** The contact's Chess opened: decide the protocol, and open the conversation. */
   private async opened(version: string | undefined): Promise<void> {
-    const { sendHello } = this.negotiator.open(version);
+    const { sendHello, sendOpening } = this.negotiator.open(version);
     this.changed();
     if (sendHello) await this.send({ k: "hello", pv: VERSION, f: [...OWN_FEATURES] });
-    else await this.openV1();
+    if (sendOpening) await this.openV2();
+    else if (!sendHello) await this.openV1();
   }
 
   /**
@@ -613,7 +614,10 @@ export class ChessController {
 
   private async peerChanged(peer: MiniAppPeerEvent): Promise<void> {
     this.peerOpen = peer.open;
-    if (!peer.open) this.invitation = null; // it comes again with the contact's next open
+    if (!peer.open) {
+      this.invitation = null; // it comes again with the contact's next open
+      this.negotiator.close();
+    }
     this.changed();
     if (peer.open) await this.opened(peer.version);
   }

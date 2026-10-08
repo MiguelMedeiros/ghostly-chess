@@ -20,7 +20,7 @@ describe("the negotiator", () => {
   it("speaks version 1 at once to 1.0.2, 1.2.0, an unparseable version and a missing one, with no hello", () => {
     for (const version of ["1.0.2", "1.2.0", "1.99.0", "2.0.0-rc.1", "dev", "", undefined]) {
       const n = new Negotiator(["clock"]);
-      expect(n.open(version), String(version)).toEqual({ sendHello: false });
+      expect(n.open(version), String(version)).toEqual({ sendHello: false, sendOpening: false });
       expect(n.mode).toBe("v1");
       expect(n.envelope).toBe(1);
       expect(n.holding).toBe(false);
@@ -30,7 +30,7 @@ describe("the negotiator", () => {
 
   it("sends hello first to 2.0.0 and holds game frames until the peer's hello", () => {
     const n = new Negotiator(["clock", "takeback"]);
-    expect(n.open("2.0.0")).toEqual({ sendHello: true });
+    expect(n.open("2.0.0")).toEqual({ sendHello: true, sendOpening: false });
     expect(n.mode).toBe("hello");
     expect(n.holding).toBe(true);
     expect(n.envelope).toBe(2);
@@ -66,6 +66,21 @@ describe("the negotiator", () => {
     n.receive(2, "hello", { f: [] });
     expect(n.receive(1, "move")).toEqual({ handle: true, sendHello: false, sendOpening: false, changed: false });
     expect(n.mode).toBe("v2");
+  });
+
+  it("keeps a hello that came before the peer's open event, and opens in version 2 on it, whatever the version says", () => {
+    for (const version of ["2.0.0", "1.0.2"]) {
+      const n = new Negotiator(["clock"]);
+      expect(n.receive(2, "hello", { f: ["clock"] })).toEqual({ handle: false, sendHello: false, sendOpening: false, changed: false });
+      expect(n.open(version), version).toEqual({ sendHello: true, sendOpening: true });
+      expect(n.mode).toBe("v2");
+      expect(n.features).toEqual(["clock"]);
+      // A close forgets an early hello.
+      n.close();
+      n.receive(2, "hello", { f: [] });
+      n.close();
+      expect(n.open("2.0.0")).toEqual({ sendHello: true, sendOpening: false });
+    }
   });
 
   it("intersects the features, keeping its own order and dropping names it does not know", () => {
@@ -159,6 +174,21 @@ describe("negotiation on the mock broker", () => {
     // Its v1 toss becomes its invitation, now in the v2 envelope.
     expect(kinds(a.sent)).toEqual(["1:seek", "2:hello", "2:seek"]);
     expect(ana.view().features).toEqual([]);
+  });
+
+  it("takes the contact's hello that came before the broker said it opened (a quick page), and opens in version 2", async () => {
+    const [a, b] = chatPair("2.0.0");
+    a.launch();
+    const ana = new ChessController(a);
+    await ana.start();
+    await ana.invite();
+    a.inject(encodeMessage({ k: "hello", pv: 2, f: [] }));
+    await settle(ana);
+    expect(a.sent).toEqual([]);
+    b.launch();
+    await settle(ana);
+    expect(ana.view().mode).toBe("v2");
+    expect(kinds(a.sent)).toEqual(["2:hello", "2:seek"]);
   });
 
   it("answers the contact's hello again when the broker says it opened twice", async () => {

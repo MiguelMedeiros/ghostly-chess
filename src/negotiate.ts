@@ -42,6 +42,10 @@ export class Negotiator {
   private name: string | undefined;
   /** This side sent a hello after the last hello it received. */
   private sentSinceReceived = false;
+  /** The peer's open has been seen (and not its close since). */
+  private opened = false;
+  /** A hello that came before this side saw the peer open: the peer's page can be quicker than the broker's event. */
+  private early: { f: string[]; n?: string } | null = null;
 
   constructor(private readonly own: readonly string[]) {}
 
@@ -81,19 +85,37 @@ export class Negotiator {
     return this.current === "hello";
   }
 
-  /** The peer opened Chess (again, or in another version). Returns whether this side opens with a hello. */
-  open(version: string | undefined): { sendHello: boolean } {
+  /**
+   * The peer opened Chess (again, or in another version). Returns whether this side opens with a hello, and whether
+   * the peer's hello is already here (it came before the open event), so the version 2 opening goes at once.
+   */
+  open(version: string | undefined): { sendHello: boolean; sendOpening: boolean } {
     this.version = typeof version === "string" && version ? version : undefined;
-    this.peerList = [];
-    this.name = undefined;
-    this.current = speaksV2(this.version) ? "hello" : "v1";
-    if (this.current === "hello") this.sentSinceReceived = true;
-    return { sendHello: this.current === "hello" };
+    this.opened = true;
+    const early = this.early;
+    this.early = null;
+    this.peerList = early ? [...early.f] : [];
+    this.name = early?.n;
+    // A hello already here is evidence that beats the version string.
+    this.current = early ? "v2" : speaksV2(this.version) ? "hello" : "v1";
+    if (this.current !== "v1") this.sentSinceReceived = true;
+    return { sendHello: this.current !== "v1", sendOpening: Boolean(early) };
+  }
+
+  /** The peer closed Chess: what it said before is forgotten until it opens again. */
+  close(): void {
+    this.opened = false;
+    this.early = null;
   }
 
   /** A frame arrived in this envelope. */
   receive(envelope: Envelope, kind: Kind, hello?: { f: string[]; n?: string }): FrameDecision {
     const none: FrameDecision = { handle: false, sendHello: false, sendOpening: false, changed: false };
+    if (kind === "hello" && !this.opened) {
+      // Before the open event: kept for it (see open), nothing sent yet.
+      this.early = { f: [...(hello?.f ?? [])], n: hello?.n };
+      return none;
+    }
     if (kind === "hello") {
       this.peerList = [...(hello?.f ?? [])];
       this.name = hello?.n;
