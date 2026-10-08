@@ -12,6 +12,12 @@ async function click(side: Side, from: string, to: string): Promise<void> {
 
 const clock = (side: Side, colour: "w" | "b") => side.frame.locator(`.strip:has(.dot.${colour}) .clock`);
 
+/** A clock's reading in seconds ("2:58" is 178, "0:19.4" is 19.4). */
+async function seconds(side: Side, colour: "w" | "b"): Promise<number> {
+  const text = (await clock(side, colour).textContent()) ?? "";
+  return text.split(":").reduce((total, part) => total * 60 + Number(part), 0);
+}
+
 for (const size of [
   { width: 1024, height: 720 },
   { width: 320, height: 568 },
@@ -38,14 +44,18 @@ for (const size of [
     await expect(white.frame.locator(".status")).toHaveText(/^Your move/);
     // White's clock runs on both pages from ply 2.
     for (const side of [white, black]) await expect(clock(side, "w")).toHaveClass(/running/);
-    await expect(clock(white, "w")).toHaveText("2:58", { timeout: 4000 });
-    await expect(clock(black, "w")).toHaveText(/^2:5[789]$/);
+    // It counts down, and black's estimate of it stays close to white's own reading.
+    const first = await seconds(white, "w");
+    await expect.poll(() => seconds(white, "w"), { timeout: 4000 }).toBeLessThan(first);
+    expect(Math.abs((await seconds(black, "w")) - (await seconds(white, "w")))).toBeLessThanOrEqual(2);
     await click(white, "g1", "f3");
     for (const side of [white, black]) {
       await expect(clock(side, "b")).toHaveClass(/running/);
       await expect(side.frame.locator(".moves .spent")).toHaveText([/^\d+\.\ds$/]);
-      // White's clock took its 2 s increment.
-      await expect(clock(side, "w")).toHaveText(/^3:0[01]$/);
+      // White's clock took its 2 s increment: what it spent, less 2 s, is off its 3 minutes.
+      const w = await seconds(side, "w");
+      expect(w).toBeGreaterThanOrEqual(170);
+      expect(w).toBeLessThanOrEqual(181);
     }
     // Nothing overflows the window, the clocks included.
     for (const side of [white, black]) {

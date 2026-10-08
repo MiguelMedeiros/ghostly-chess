@@ -119,6 +119,39 @@ describe("a side away on its turn", () => {
   });
 });
 
+describe("the observer reloads", () => {
+  it("keeps the contact's clock running through its own reload, by the wall time of its send, and still bounds the move", async () => {
+    const { link, white, black } = await timedGame([180, 0]);
+    await play(link, white, "e2e4");
+    await play(link, black, "e7e5");
+    await link.advance(10_000);
+    await link.close(black);
+    await link.advance(20_000);
+    const back = await link.open(black.broker);
+    await link.advance(100, 10);
+    // White's estimate runs on from black's send of e5, not from the reload.
+    expect(clocks(back).running).toBe("w");
+    expect(clocks(back).w).toBeLessThanOrEqual(150_000);
+    expect(clocks(back).w).toBeGreaterThan(149_500);
+    await link.advance(5000);
+    await play(link, white, "g1f3");
+    // An honest move: not clamped, the same time on both sides; and no claim.
+    expect(record(back).k).toEqual(record(white).k);
+    expect(back.notices).not.toContain("clock-off");
+    expect(flags(back)).toEqual([]);
+    // The same bound holds for a move that claims too much: E from the send before the reload.
+    white.broker.rewrite = (f) => (f.k === "move" ? { ...f, t: record(white).k![2] } : f);
+    await play(link, back, "b8c6");
+    await link.close(back);
+    await link.advance(8000);
+    const again = await link.open(black.broker);
+    await link.advance(2000);
+    await play(link, white, "f1b5");
+    expect(record(again).k![4]).toBeLessThanOrEqual(record(white).k![2] - 10_000 + 2000 + 50);
+    expect(again.notices).toContain("clock-off");
+  });
+});
+
 describe("a peer that holds its acks", () => {
   it("is clamped when it holds them until just before moving and reports t = P + I: E starts at this side's send", async () => {
     const { link, white, black } = await timedGame([60, 0]);
