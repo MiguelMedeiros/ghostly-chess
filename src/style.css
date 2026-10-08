@@ -1,16 +1,14 @@
+/* The page follows the client's theme; the board keeps its colours in light and dark, as chess.com's does. */
 :root {
   color-scheme: light;
   --bg: #f7f7f5;
   --fg: #1d1d1f;
   --muted: #5f6368;
-  --light: #ecdab9;
-  --dark: #ae8a68;
   --accent: #2f6fde;
   --danger: #c0362c;
-  --mark: rgba(47, 111, 222, 0.35);
-  --last: rgba(255, 214, 10, 0.45);
-  --check: rgba(192, 54, 44, 0.7);
   --btn: #e6e6e3;
+  --surface: #ffffff;
+  --line: #d6d6d2;
   --white-piece: #fff;
   --black-piece: #1b1b1b;
 }
@@ -19,58 +17,222 @@
   --bg: #17181a;
   --fg: #ececec;
   --muted: #a0a4a8;
-  --light: #9a9f8f;
-  --dark: #5f6b57;
   --accent: #7aa7ff;
   --danger: #ff6b5e;
-  --mark: rgba(122, 167, 255, 0.45);
-  --last: rgba(255, 214, 10, 0.35);
   --btn: #2a2c2f;
+  --surface: #222326;
+  --line: #3a3c40;
 }
+
+/* Board themes: square colours, and the yellow of the last move and the picked piece on each. */
+.board-wrap,
+.board-wrap[data-theme="green"] {
+  --light: #eeeed2;
+  --dark: #769656;
+  --hi-light: #f6f669;
+  --hi-dark: #baca2b;
+}
+.board-wrap[data-theme="brown"] {
+  --light: #f0d9b5;
+  --dark: #b58863;
+  --hi-light: #f7ec74;
+  --hi-dark: #dac34b;
+}
+.board-wrap[data-theme="blue"] {
+  --light: #dee3e6;
+  --dark: #8ca2ad;
+  --hi-light: #e3e78a;
+  --hi-dark: #b4b85c;
+}
+
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); }
 body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---------- layout ---------- */
 .app {
-  --board: min(calc(100vw - 16px), calc(100vh - 150px), 560px);
-  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px;
+  --side: 320px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px; min-width: 0;
 }
-.status { margin: 0; font-weight: 600; min-height: 1.35em; text-align: center; }
+.app[data-layout="wide"] { flex-direction: row; align-items: flex-start; justify-content: center; }
+.play { display: flex; flex-direction: column; gap: 4px; width: var(--side); }
+.strip { display: flex; align-items: center; gap: 8px; height: 28px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.strip.to-move { color: var(--fg); }
+.strip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--muted); }
+.dot.w { background: #fff; }
+.dot.b { background: #262626; }
+.dot.unknown { border-style: dashed; }
+.strip.to-move .dot { box-shadow: 0 0 0 2px var(--accent); }
+
+.panel { display: flex; flex-direction: column; gap: 6px; width: var(--side); min-width: 0; }
+.app[data-layout="wide"] .panel { width: 240px; max-height: calc(var(--side) + 64px); }
+/*
+ * Below the board, the board is sized from the panel's reserved height (NARROW_PANEL in ui.ts), so each line keeps its
+ * height whatever it holds: status 20, side 18, move row 30, controls 36, notices 18, 6 px between them.
+ */
+.app[data-layout="narrow"] .panel { width: 100%; max-width: 640px; }
+.app[data-layout="narrow"] .status { min-height: 20px; }
+.app[data-layout="narrow"] .side { min-height: 18px; }
+.app[data-layout="narrow"] .moves { min-height: 30px; }
+.app[data-layout="narrow"] .notices { min-height: 18px; }
+.status { margin: 0; font-weight: 600; min-height: 1.35em; }
 .side { margin: 0; color: var(--muted); font-size: 13px; min-height: 1.35em; }
-.board {
-  width: var(--board); min-width: 240px; aspect-ratio: 1; display: grid; grid-template-rows: repeat(8, 1fr);
-  border-radius: 4px; overflow: hidden; touch-action: manipulation;
+.app[data-layout="narrow"] .status,
+.app[data-layout="narrow"] .side { text-align: center; }
+
+.moves {
+  margin: 0; padding: 4px 6px; list-style: none; font-size: 14px; font-variant-numeric: tabular-nums;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
 }
-.rank { display: grid; grid-template-columns: repeat(8, 1fr); }
-.sq {
-  all: unset; position: relative; display: flex; align-items: center; justify-content: center;
-  font-size: calc(max(var(--board), 240px) / 8 * 0.78); line-height: 1; cursor: pointer;
-  font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", system-ui, sans-serif;
-}
-.sq.light { background: var(--light); }
-.sq.dark { background: var(--dark); }
-.sq.w { color: var(--white-piece); text-shadow: 0 0 1px #000, 0 0 1px #000, 0 1px 1px #000; }
-.sq.b { color: var(--black-piece); text-shadow: 0 0 1px #fff8; }
-.sq.last { box-shadow: inset 0 0 0 100vmax var(--last); }
-.sq.selected { box-shadow: inset 0 0 0 100vmax var(--mark); }
-.sq.check { box-shadow: inset 0 0 12px 4px var(--check); }
-.sq.target::after {
-  content: ""; position: absolute; width: 28%; height: 28%; border-radius: 50%; background: var(--mark); pointer-events: none;
-}
-.sq.capture::after { width: 86%; height: 86%; background: none; border: 4px solid var(--mark); }
-.sq:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; z-index: 1; }
-.board.locked .sq { cursor: default; }
-.row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; min-height: 36px; }
+/* Before the first move: no box and no tab stop, whatever display a layout gives the list. */
+.moves[hidden], .offer-card[hidden] { display: none !important; }
+.moves:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+.move { display: inline-flex; gap: 6px; }
+.move .no { color: var(--muted); }
+.move .san.current { font-weight: 700; }
+/* Narrow: the moves are one row that scrolls sideways, as on chess.com's phone layout. */
+.app[data-layout="narrow"] .moves { display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
+.app[data-layout="narrow"] .move { flex: none; }
+/* Wide: a column of numbered move pairs that scrolls. */
+.app[data-layout="wide"] .moves { flex: 1 1 auto; min-height: 60px; overflow-y: auto; }
+.app[data-layout="wide"] .move { display: grid; grid-template-columns: 2.6em 1fr 1fr; width: 100%; padding: 1px 0; }
+
+.bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 36px; }
+.app[data-layout="narrow"] .bar { justify-content: center; }
+.notice { margin: 0; color: var(--muted); font-size: 13px; line-height: 18px; }
+.notice:empty { min-height: 0; line-height: 0; } /* empty, but still in the tree: the alert region must exist before its text comes */
+.app[data-layout="narrow"] .notice { text-align: center; }
+
 .act {
-  font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 8px; border: 1px solid transparent;
+  font: inherit; font-size: 14px; padding: 7px 12px; min-height: 36px; border-radius: 8px; border: 1px solid transparent;
   background: var(--btn); color: var(--fg); cursor: pointer;
 }
-.act:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.act:focus-visible, .icon-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .act:disabled { opacity: 0.55; cursor: default; }
 .act.primary { background: var(--accent); color: #fff; }
 :root[data-theme="dark"] .act.primary { color: #10131a; }
 .act.danger { color: var(--danger); }
-.act.piece { font-size: 26px; padding: 2px 10px; line-height: 1.2; }
-.act.piece.w { color: var(--white-piece); text-shadow: 0 0 1px #000, 0 1px 1px #000; }
-.act.piece.b { color: var(--black-piece); }
-.offer { font-size: 14px; }
-.notice { margin: 0; color: var(--muted); font-size: 13px; min-height: 1.35em; text-align: center; max-width: var(--board); }
+.act.icon { min-width: 40px; padding: 4px 10px; font-size: 18px; line-height: 1; }
+/* The contact's draw offer: its words on one line, Accept and Decline under them. Below the board it floats up from
+   the controls' bottom edge over them and the move row, so it never resizes the board; beside the board it is the
+   first row of the controls. */
+.offer-card {
+  flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 6px; padding: 4px 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+}
+.app[data-layout="narrow"] .offer-card { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+.offer { flex: 1 1 100%; text-align: center; font-size: 14px; font-weight: 600; }
+
+/* ---------- the board ---------- */
+.board-wrap { position: relative; width: var(--side); height: var(--side); flex: none; }
+.board {
+  width: 100%; height: 100%; display: grid; grid-template-rows: repeat(8, 1fr); border-radius: 4px; overflow: hidden;
+  /* Set before any touch: a touch-action set when a drag starts is too late, the browser has chosen to pan. */
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.rank { display: grid; grid-template-columns: repeat(8, 1fr); }
+.sq {
+  all: unset; position: relative; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sq.light { background-color: var(--light); }
+.sq.dark { background-color: var(--dark); }
+.sq.light.last, .sq.light.selected { background-color: var(--hi-light); }
+.sq.dark.last, .sq.dark.selected { background-color: var(--hi-dark); }
+.sq.check { background-image: radial-gradient(circle, #ff0000 0%, #e70000 30%, rgba(169, 0, 0, 0) 75%); box-shadow: inset 0 0 0 3px rgba(200, 0, 0, 0.75); }
+.sq.target::after {
+  content: ""; position: absolute; width: 32%; height: 32%; border-radius: 50%; background: rgba(0, 0, 0, 0.16); pointer-events: none;
+}
+.sq.capture::after { width: 100%; height: 100%; background: radial-gradient(transparent 0, transparent 77%, rgba(0, 0, 0, 0.16) 78%); }
+.sq.hover { box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.75); }
+.sq:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; z-index: 2; }
+.board.locked .sq { cursor: default; }
+.sq .piece { width: 100%; height: 100%; pointer-events: none; }
+.sq.dragging .piece, .sq.dragging .glyph { opacity: 0.35; }
+.glyph { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* The Classic set: the glyphs themselves, coloured by CSS (Chess 1.0.2's look). */
+.board-wrap.classic .glyph {
+  position: static; width: auto; height: auto; overflow: visible; clip-path: none; pointer-events: none;
+  font-size: calc(var(--side) / 8 * 0.78); line-height: 1;
+  font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", system-ui, sans-serif;
+}
+.board-wrap.classic .sq.w .glyph, .board-wrap.classic .glyph.w, .promo-choice.w .glyph { color: var(--white-piece); text-shadow: 0 0 1px #000, 0 0 1px #000, 0 1px 1px #000; }
+.board-wrap.classic .sq.b .glyph, .board-wrap.classic .glyph.b, .promo-choice.b .glyph { color: var(--black-piece); text-shadow: 0 0 1px #fff8; }
+
+.coords {
+  position: absolute; inset: 0; z-index: 1; display: grid; grid-template-rows: repeat(8, 1fr); grid-template-columns: repeat(8, 1fr);
+  pointer-events: none; font: 700 max(10px, calc(var(--side) / 8 * 0.22))/1 system-ui, sans-serif;
+}
+.coords[hidden] { display: none; }
+.coord.file { align-self: end; justify-self: end; padding: 0 3px 2px 0; }
+.coord.rank-label { align-self: start; justify-self: start; padding: 2px 0 0 3px; }
+.coord.on-light { color: var(--dark); }
+.coord.on-dark { color: var(--light); }
+
+.ghost {
+  position: absolute; left: 0; top: 0; z-index: 5; width: calc(var(--side) / 8); height: calc(var(--side) / 8);
+  display: flex; align-items: center; justify-content: center; pointer-events: none; will-change: transform;
+}
+.ghost .piece { width: 110%; height: 110%; flex: none; }
+.ghost .glyph { position: static; width: auto; height: auto; overflow: visible; clip-path: none; font-size: calc(var(--side) / 8 * 0.85); line-height: 1; }
+
+/* The promotion picker, over the promotion file. */
+.promo { position: absolute; inset: 0; z-index: 6; }
+.promo-shade { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
+.promo-col {
+  position: absolute; width: 12.5%; display: flex; flex-direction: column; background: #fff; border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45); overflow: hidden;
+}
+.promo-choice, .promo-cancel {
+  all: unset; display: flex; align-items: center; justify-content: center; width: 100%; cursor: pointer; color: #333;
+}
+.promo-choice { height: calc(var(--side) / 8); }
+.promo-choice .piece { width: 100%; height: 100%; pointer-events: none; }
+.promo-choice .glyph { position: static; width: auto; height: auto; overflow: visible; clip-path: none; font-size: calc(var(--side) / 8 * 0.78); line-height: 1; }
+.promo-choice:hover, .promo-choice:focus-visible { background: #e8e8e8; }
+.promo-choice:focus-visible, .promo-cancel:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.promo-cancel { height: max(24px, calc(var(--side) / 16)); font-size: 18px; background: #f1f1f1; }
+
+/*
+ * Windows high contrast and other forced colours. The board keeps its own colours there (its squares, the pieces and
+ * the Classic glyphs would otherwise turn Canvas on Canvas, black pieces vanishing on a dark theme); the marks become
+ * outlines in system colours as well, which read on any square.
+ */
+@media (forced-colors: active) {
+  .board-wrap, .ghost, .promo-col { forced-color-adjust: none; }
+  .sq.last { outline: 2px dashed CanvasText; outline-offset: -3px; }
+  .sq.selected { outline: 4px solid Highlight; outline-offset: -4px; }
+  .sq.target::after, .sq.capture::after { background: none; border: 3px solid Highlight; }
+  .sq.check { outline: 4px double LinkText; outline-offset: -5px; }
+  .sq.hover { outline: 3px solid Highlight; outline-offset: -3px; }
+}
+
+/* ---------- dialog ---------- */
+.backdrop { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.45); }
+.dialog {
+  width: min(360px, 100%); max-height: 100%; overflow: auto; padding: 12px 16px 16px; border-radius: 12px;
+  background: var(--surface); color: var(--fg); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dialog-head h2 { margin: 0; font-size: 17px; }
+.icon-btn { font: inherit; font-size: 22px; line-height: 1; min-width: 36px; min-height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--fg); cursor: pointer; }
+.dialog-body { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.choices { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.choices legend { padding: 0; margin-bottom: 4px; font-weight: 600; font-size: 14px; }
+.choice, .toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; cursor: pointer; }
+.swatch { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line); }
+.choice-green .swatch { background: linear-gradient(135deg, #eeeed2 50%, #769656 50%); }
+.choice-brown .swatch { background: linear-gradient(135deg, #f0d9b5 50%, #b58863 50%); }
+.choice-blue .swatch { background: linear-gradient(135deg, #dee3e6 50%, #8ca2ad 50%); }
+.choice-cburnett .swatch, .choice-classic .swatch { display: none; }
+.hint { margin: 0; color: var(--muted); font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
+}

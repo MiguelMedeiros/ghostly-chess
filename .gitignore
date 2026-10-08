@@ -3,3 +3,5 @@ node_modules
 release
 *.ghostlyapp
 *.key
+test-results
+playwright-report

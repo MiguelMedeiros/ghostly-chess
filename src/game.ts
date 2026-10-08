@@ -14,7 +14,7 @@
  * the sender may claim (its own resignation, or a draw this side offered). Anything else is shown as "out of step",
  * and New game starts a fresh toss that gives up both games.
  */
-import { Chess, type Square } from "chess.js";
+import { Chess, type Move, type Square } from "chess.js";
 import type { MiniAppApi, MiniAppJson, MiniAppPeerEvent } from "./vendor/miniApp.ts";
 import { encodeMessage, MAX_PLIES, parseMessage, UCI, type Colour, type DrawOption, type GameEnd, type Message } from "./protocol.ts";
 import { commitment, cryptoRandom, deal, newSalt, type Random } from "./toss.ts";
@@ -89,12 +89,26 @@ export interface View {
   fen: string;
   turn: Colour;
   plies: number;
-  lastMove?: { from: Square; to: Square };
+  lastMove?: LastMove;
   inCheck: boolean;
   end?: Ending;
   drawOffer?: "me" | "peer";
   /** This side may move now. */
   canMove: boolean;
+}
+
+/** The last ply, as the board and the announcements show it. */
+export interface LastMove {
+  from: Square;
+  to: Square;
+  san: string;
+  colour: Colour;
+  /** The piece that moved (a pawn when it promoted). */
+  piece: "k" | "q" | "r" | "b" | "n" | "p";
+  captured?: "q" | "r" | "b" | "n" | "p";
+  promotion?: "q" | "r" | "b" | "n";
+  /** "k" or "q" when the move castled on that side. */
+  castle?: "k" | "q";
 }
 
 export interface ControllerOptions {
@@ -149,6 +163,15 @@ function endingOf(chess: Chess, plies: number, x: GameEnd | undefined): Ending |
   return boardEnding(chess, plies);
 }
 
+function lastMoveOf(move: Move): LastMove {
+  const out: LastMove = { from: move.from, to: move.to, san: move.san, colour: move.color, piece: move.piece };
+  if (move.captured) out.captured = move.captured as LastMove["captured"];
+  if (move.promotion) out.promotion = move.promotion as LastMove["promotion"];
+  if (move.isKingsideCastle()) out.castle = "k";
+  else if (move.isQueensideCastle()) out.castle = "q";
+  return out;
+}
+
 const isPrefix = (a: string[], b: string[]) => a.length <= b.length && a.every((m, i) => b[i] === m);
 
 export class ChessController {
@@ -171,6 +194,13 @@ export class ChessController {
   private readonly listeners = new Set<() => void>();
   private readonly noticeListeners = new Set<(notice: Notice) => void>();
   private readonly unsubscribe: (() => void)[] = [];
+  /**
+   * What the board alone says, read once per position: chess.js replays the whole game for its history and for
+   * repetition, and the board asks for the view and the targets on every press. Keyed by the Chess object and its FEN
+   * (the move counters make every ply's FEN new), so a move, a load or a new game all start afresh without being
+   * cleared by hand. What else the view reads (the phase, the peer, the offer) is read fresh every time.
+   */
+  private boardCache: { chess: Chess; fen: string; plies: number; last?: LastMove; ending?: Ending; inCheck: boolean; targets: Map<Square, { to: Square; promotion: boolean }[]> } | null = null;
 
   constructor(api: MiniAppApi, options: ControllerOptions = {}) {
     this.api = api;
@@ -230,11 +260,25 @@ export class ChessController {
 
   // ---------- what the UI reads ----------
 
-  view(): View {
-    const history = this.chess.history({ verbose: true });
+  private position(): NonNullable<ChessController["boardCache"]> {
+    const chess = this.chess;
+    const fen = chess.fen();
+    const cached = this.boardCache;
+    if (cached && cached.chess === chess && cached.fen === fen) return cached;
+    const history = chess.history({ verbose: true });
     const last = history[history.length - 1];
     const plies = history.length;
-    const end = this.inChat ? (this.game ? endingOf(this.chess, plies, this.game.x) : undefined) : boardEnding(this.chess, plies);
+    const fresh = { chess, fen, plies, last: last ? lastMoveOf(last) : undefined, ending: boardEnding(chess, plies), inCheck: chess.inCheck(), targets: new Map() };
+    this.boardCache = fresh;
+    return fresh;
+  }
+
+  view(): View {
+    const position = this.position();
+    const plies = position.plies;
+    const x = this.game?.x;
+    const gameEnd: Ending | undefined = x?.why === "resign" || x?.why === "agreed" ? endingOf(this.chess, plies, x) : position.ending;
+    const end = this.inChat ? (this.game ? gameEnd : undefined) : position.ending;
     let phase: Phase;
     if (!this.phaseLoaded) phase = "loading";
     else if (!this.inChat) phase = "alone";
@@ -248,15 +292,20 @@ export class ChessController {
       phase,
       me,
       peerOpen: this.peerOpen,
-      fen: this.chess.fen(),
+      fen: position.fen,
       turn,
       plies,
-      lastMove: last ? { from: last.from, to: last.to } : undefined,
-      inCheck: this.chess.inCheck(),
+      lastMove: position.last,
+      inCheck: position.inCheck,
       end,
       drawOffer: this.inChat && !end ? this.game?.d : undefined,
       canMove,
     };
+  }
+
+  /** Every ply so far, in SAN ("e4", "Nf3", "O-O"). */
+  history(): string[] {
+    return this.chess.history();
   }
 
   /** The board as chess.js gives it, rank 8 first. */
@@ -267,9 +316,14 @@ export class ChessController {
   /** Where the piece on `square` may go now, if this side may move it. */
   targets(square: Square): { to: Square; promotion: boolean }[] {
     if (!this.view().canMove) return [];
+    const cache = this.position().targets;
+    const known = cache.get(square);
+    if (known) return known;
     const seen = new Map<Square, boolean>();
     for (const m of this.chess.moves({ square, verbose: true })) seen.set(m.to, seen.get(m.to) || Boolean(m.promotion));
-    return [...seen].map(([to, promotion]) => ({ to, promotion }));
+    const targets = [...seen].map(([to, promotion]) => ({ to, promotion }));
+    cache.set(square, targets);
+    return targets;
   }
 
   // ---------- this side's actions ----------
