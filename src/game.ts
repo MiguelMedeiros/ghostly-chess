@@ -80,7 +80,7 @@ export type { SavedFlip, SavedGame, SavedPrev };
  * The features this build implements and names in its hello. The protocol knows five (FEATURE_NAMES); a build names
  * only what it does, so a later Chess never sends this one a clock or a takeback it cannot run.
  */
-export const OWN_FEATURES: readonly Feature[] = ["clock"];
+export const OWN_FEATURES: readonly Feature[] = ["clock", "takeback", "rematch", "abort"];
 
 /**
  * A value as the broker takes it: strict JSON, made by a round trip through JSON. The broker refuses a value with an
@@ -144,7 +144,9 @@ export type Notice =
   | "peer-new-game"
   | "send-failed"
   | "declined"
-  | "clock-off";
+  | "clock-off"
+  | "taken-back"
+  | "takeback-declined";
 
 /** An invitation's terms, as the UI shows them. */
 export interface Terms {
@@ -189,6 +191,20 @@ export interface View {
   pendingClaim?: boolean;
   /** Our claim on the contact's time waits for its answer: no resign, no draw meanwhile (C7). */
   claiming?: boolean;
+  /** The ply count the standing draw offer was made at. */
+  drawAt?: number;
+  /** This side may offer a draw now: one offer per own move. */
+  canDraw?: boolean;
+  /** A takeback asked: by this side ("me"), or by the contact, waiting for this side's answer ("peer"). */
+  takeback?: "me" | "peer";
+  /** This side may ask to take back its last move now (both named "takeback"; one ask per own move). */
+  canTakeback?: boolean;
+  /** Abort replaces Resign: before ply 2, both sides named "abort". */
+  canAbort?: boolean;
+  /** The game is over and is this side's last one: a rematch may be asked (it needs "rematch" named by both). */
+  canRematch?: boolean;
+  /** The contact's turn in a game going on: a premove may be queued (premove.ts). */
+  canPremove?: boolean;
 }
 
 /** The clocks as the strips show them, in ms. The contact's running clock is an estimate (P - (now - ts)). */
@@ -219,6 +235,10 @@ const HELLO_ANSWER_GAP_MS = 1000;
 const HELLO_RETRY_MS = 3000;
 
 const other = (c: Colour): Colour => (c === "w" ? "b" : "w");
+/** The colour that made ply index i (white makes the even ones). */
+const plyBy = (i: number): Colour => (i % 2 === 0 ? "w" : "b");
+/** The index of `colour`'s last ply with `plies` on the board (negative when it has none): a takeback goes back to it. */
+export const lastPlyOf = (colour: Colour, plies: number): number => (plyBy(plies - 1) === colour ? plies - 1 : plies - 2);
 
 /** Plays one UCI ply on `chess`, or throws. The promotion piece must be given exactly when the move promotes. */
 export function playUci(chess: Chess, uci: string): void {
@@ -298,11 +318,10 @@ function alignedK(game: SavedGame): number[] {
   return k;
 }
 
-/** A game record with this k and clamp offset (none when 0). */
-function withClock(game: SavedGame, clock: Pick<SavedGame, "k" | "ko">): SavedGame {
-  const next = { ...game, k: clock.k };
-  if (clock.ko) next.ko = clock.ko;
-  else delete next.ko;
+/** A game record with this k and clamp offset (none when 0), and the ply of the latest clamp. */
+function withClock(game: SavedGame, clock: Pick<SavedGame, "k" | "ko" | "kj">): SavedGame {
+  const next = without({ ...game, k: clock.k }, "ko", "kj");
+  if (clock.ko) Object.assign(next, { ko: clock.ko }, clock.kj === undefined ? {} : { kj: clock.kj });
   return next;
 }
 
@@ -391,6 +410,12 @@ export class ChessController {
   private clockNoticed: string | null = null;
   /** A move that crossed our claim at its ply: held, never applied, until the claimed side answers (C7). */
   private pending: { n: number; m: string } | null = null;
+  /** The contact's takeback ask, by the ply count it goes back to, waiting for this side's answer. */
+  private peerAsk: number | null = null;
+  /** One takeback ask and one draw offer per own move, and an ask declined here is not shown again: "g:tb:n" keys. */
+  private asked = "";
+  private refused = "";
+  private offered = "";
   /**
    * What the board alone says, read once per position: chess.js replays the whole game for its history and for
    * repetition, and the board asks for the view and the targets on every press. Keyed by the Chess object and its FEN
@@ -542,7 +567,36 @@ export class ChessController {
     if (phase === "playing" && this.peerSilent()) view.peerSilent = true;
     if (phase === "playing" && this.game?.pc !== undefined && this.game.fl === undefined) view.pendingClaim = true;
     if (phase === "playing" && this.claiming()) view.claiming = true;
+    const game = this.game;
+    if (phase === "playing" && game) {
+      const plies = game.m.length;
+      const free = this.peerOpen && !view.claiming;
+      if (view.drawOffer) view.drawAt = game.dn ?? plies;
+      view.canDraw = free && !game.d && this.offered !== this.ownKey(game);
+      if (game.q !== undefined) view.takeback = "me";
+      else if (this.peerAsk !== null) view.takeback = "peer";
+      const back = lastPlyOf(game.me, plies);
+      view.canTakeback = free && back >= 0 && !view.takeback && this.has("takeback") && this.asked !== this.key(game, back);
+      view.canAbort = plies < 2 && this.has("abort");
+      view.canPremove = !end && me !== turn && !view.claiming;
+    }
+    view.canRematch = phase === "over" && Boolean(game && this.prev?.g === game.g);
     return view;
+  }
+
+  /** Whether both sides named a feature. */
+  private has(feature: Feature): boolean {
+    return this.negotiator.features.includes(feature);
+  }
+
+  /** A key for "once per own move": the game, its takeback epoch and a ply count. */
+  private key(game: SavedGame, n: number): string {
+    return `${game.g}:${game.tb ?? 0}:${n}`;
+  }
+
+  /** The key of this side's own moves so far: a draw offer goes once per own move. */
+  private ownKey(game: SavedGame): string {
+    return this.key(game, lastPlyOf(game.me, game.m.length));
   }
 
   /** Both clocks now, in a timed game in this chat; undefined otherwise. Read as often as the page likes. */
@@ -648,7 +702,7 @@ export class ChessController {
       }
       const game = this.game!;
       const n = game.m.length;
-      let next: SavedGame = { ...noOffer(game), m: [...game.m, uci] };
+      let next = this.moved(game, game.me, uci);
       let t: number | undefined;
       if (game.tc) {
         // This side's own measure (C2): its time before the move less the time its turn took, plus the increment.
@@ -685,6 +739,9 @@ export class ChessController {
     return this.enqueue(async () => {
       if (this.view().phase !== "playing" || !this.peerOpen || !this.game || this.game.d === "me" || this.claiming()) return;
       if (this.game.d === "peer") return this.answerDrawNow(true);
+      // One offer per own move.
+      if (this.offered === this.ownKey(this.game)) return;
+      this.offered = this.ownKey(this.game);
       const n = this.game.m.length;
       this.game = { ...this.game, d: "me", dn: n };
       await this.saveGame();
@@ -696,6 +753,67 @@ export class ChessController {
   /** Accepts or declines the peer's draw offer. */
   answerDraw(accept: boolean): Promise<void> {
     return this.enqueue(() => this.answerDrawNow(accept));
+  }
+
+  /**
+   * Asks the contact to take back this side's last move: one ply, or two when the contact already replied. The ask (q)
+   * is kept until it is answered, and goes again when the contact opens Chess; any move lets it lapse.
+   */
+  takeback(): Promise<void> {
+    return this.enqueue(async () => {
+      const game = this.game;
+      if (!game || !this.view().canTakeback) return;
+      const n = lastPlyOf(game.me, game.m.length);
+      this.asked = this.key(game, n);
+      this.game = { ...game, q: n };
+      await this.saveGame();
+      this.changed();
+      await this.send({ k: "takeback", g: game.g, n, o: "ask" });
+    });
+  }
+
+  /** Accepts or declines the contact's takeback ask. */
+  answerTakeback(accept: boolean): Promise<void> {
+    return this.enqueue(async () => {
+      const game = this.game;
+      const n = this.peerAsk;
+      if (!game || n === null || this.view().phase !== "playing" || this.claiming()) return;
+      this.peerAsk = null;
+      if (accept) await this.takeBack(n);
+      else {
+        this.refused = this.key(game, n);
+        this.changed();
+      }
+      await this.send({ k: "takeback", g: game.g, n, o: accept ? "accept" : "decline" });
+      if (accept) await this.plySent(false);
+    });
+  }
+
+  /** Aborts the game before ply 2 (both named "abort"): no result. The contact learns it from our sync. */
+  abort(): Promise<void> {
+    return this.enqueue(async () => {
+      const view = this.view();
+      if (view.phase !== "playing" || !view.canAbort || !this.game) return;
+      this.game = { ...without(noOffer(this.game), "q", "tw"), x: { why: "aborted" } };
+      this.turnStart = undefined;
+      await this.saveGame();
+      this.changed();
+      await this.sendSync();
+    });
+  }
+
+  /**
+   * Asks for a rematch of the game that just ended: an invitation with the same time control and r = that game, so
+   * each side takes the other colour (deal2 with 'prev'). One at a time: the invitation is this side's toss.
+   */
+  rematch(): Promise<void> {
+    return this.enqueue(async () => {
+      const game = this.game;
+      if (!game || !this.view().canRematch) return;
+      const terms = { ...termsOf({ tc: game.tc }), r: game.g };
+      if (!this.playable(terms)) return;
+      await this.startToss(this.giveUp(), terms);
+    });
   }
 
   /**
@@ -888,6 +1006,8 @@ export class ChessController {
   /** Version 2's opening, once both hellos are out: the game (so the contact catches up), and the invitation. */
   private async openV2(): Promise<void> {
     if (this.game) await this.sendSync();
+    // Our takeback ask, still unanswered: the contact may have reloaded since.
+    if (this.game?.q !== undefined && !this.ended()) await this.send({ k: "takeback", g: this.game.g, n: this.game.q, o: "ask" });
     await this.openClocks();
     if (!this.flip) return;
     await this.dealFor(2);
@@ -910,6 +1030,7 @@ export class ChessController {
     if (!peer.open) {
       this.retry = false; // the contact's next open brings our state anyway
       this.invitation = null; // it comes again with the contact's next open
+      this.peerAsk = null; // so does a takeback ask
       this.negotiator.close();
       this.clearHelloTimers();
     }
@@ -1001,8 +1122,9 @@ export class ChessController {
     const over = game ? this.ended() : true;
     if (game && !over && !this.flip && !this.choosing && !seek.a.includes(game.g)) return this.sendSync();
     if (this.flip && commitment(this.flip.salt) === seek.c) return this.notice("bad-message");
-    // A rematch of a game this side does not hold as its last one: nothing to deal colours from.
-    if (seek.r && this.prev?.g !== seek.r) return this.notice("bad-message");
+    // A rematch of a game this side does not hold as its last one, or with other terms: nothing to deal colours
+    // from, so it is declined.
+    if (seek.r && (this.prev?.g !== seek.r || !sameTerms({ tc: this.prev.tc }, { tc: seek.tc }))) return void (await this.send({ k: "decline", c: seek.c }));
     const flip = this.flip;
     if (flip && flip.peer === seek.c) return void (await this.send({ k: "reveal", s: flip.salt, c: seek.c }));
     if (flip && sameTerms(flip, seek)) {
@@ -1067,7 +1189,8 @@ export class ChessController {
     }
     const end = this.ended();
     if (end || n !== game.m.length || this.chess.turn() !== other(game.me)) {
-      this.notice("invalid-move");
+      // A move that crossed our resignation or abort is no fault of the contact's: our sync tells it.
+      if (!game.x) this.notice("invalid-move");
       return void (await this.resync());
     }
     try {
@@ -1078,7 +1201,7 @@ export class ChessController {
     }
     // Signs of life for "isn't answering" are only frames that pass their checks: a stream of wrong ones hides nothing.
     this.heard = this.mono();
-    let next: SavedGame = { ...noOffer(game), m: [...game.m, uci] };
+    let next = this.moved(game, other(game.me), uci);
     if (game.tc) {
       // The move frame is itself a proof: it left within one-way latency of its arrival (C4).
       const clock = this.contactPly(game, n, t, this.tsMono === undefined ? undefined : this.mono() - this.tsMono);
@@ -1100,13 +1223,13 @@ export class ChessController {
    * or null when that view is at or below 0, or the proof is past its time (a claim, never a refusal). `E` is the
    * observer bound when there is a proof.
    */
-  private contactPly(game: SavedGame, n: number, t: number | undefined, E: number | undefined): Pick<SavedGame, "k" | "ko"> | null {
+  private contactPly(game: SavedGame, n: number, t: number | undefined, E: number | undefined): Pick<SavedGame, "k" | "ko" | "kj"> | null {
     const tc = game.tc!;
     const k = alignedK(game);
     const ko = game.ko ?? 0;
     if (!timedPly(n)) {
       k[n] = baseMs(tc);
-      return { k, ko: game.ko };
+      return { k, ko: game.ko, kj: game.kj };
     }
     const P = timeBefore(tc, k, n);
     const I = incrementAt(tc, n);
@@ -1119,7 +1242,7 @@ export class ChessController {
     if (mayClaim(E, P, G, view)) return null;
     k[n] = Math.max(0, view);
     const more = Math.min(2 ** 31 - 1, ko + Math.max(0, reported - k[n]));
-    return { k, ko: more > 0 ? more : undefined };
+    return { k, ko: more > 0 ? more : undefined, kj: more > ko ? n : game.kj };
   }
 
   /** The contact's ply is applied: this side's turn starts now (C2), and our ply's bound is done with. */
@@ -1128,6 +1251,18 @@ export class ChessController {
     this.tsMono = undefined;
     this.lastAck = null;
     return { ...without(game, "ts", "pc"), tw: this.now() };
+  }
+
+  /**
+   * The game with `mover`'s ply played. A takeback asked lapses on any move. A draw offer stands through its own
+   * side's move and lapses when the other side moves instead of answering (with a contact on 2.2.0 or later, which
+   * names "takeback"); with an older one, any move clears it, as in Chess 1.0.2.
+   */
+  private moved(game: SavedGame, mover: Colour, uci: string): SavedGame {
+    this.peerAsk = null;
+    const offerer = game.d === "me" ? game.me : game.d === "peer" ? other(game.me) : undefined;
+    const next = without(game, "q");
+    return { ...(offerer === mover && this.has("takeback") ? next : noOffer(next)), m: [...game.m, uci] };
   }
 
   /** Our claim on the contact's time at ply count n (C7): the crossing move, if any, waits for the answer. */
@@ -1191,8 +1326,22 @@ export class ChessController {
     }
     const game = this.game!;
     this.heard = this.mono();
-    // A takeback this side never asked for: the two histories differ.
-    if ((sync.tb ?? 0) > (game.tb ?? 0)) return this.outOfStep(g);
+    const tb = sync.tb ?? 0;
+    const ours = game.tb ?? 0;
+    if (tb > ours) {
+      // A takeback accepted whose accept never reached us: taken only when it is the one we asked for (q), still pending.
+      if (tb !== ours + 1 || game.q !== moves.length || !isPrefix(moves, game.m) || game.x) return this.outOfStep(g);
+      await this.takeBack(moves.length);
+      return this.onSync(v, sync);
+    }
+    if (tb < ours) {
+      // The asker missed our accept (it closed): its history still has the plies taken back. The accept goes again,
+      // with our sync, and our ply's bound moves to this send (C4). Anything else is another history.
+      const extra = moves.length - game.m.length;
+      if (game.x || extra < 1 || extra > 2 || !isPrefix(game.m, moves)) return this.outOfStep(g);
+      await this.send({ k: "takeback", g, n: game.m.length, o: "accept" });
+      return this.sendSync(true);
+    }
     this.stepPeerGame = null;
     let next = game;
     let dropped = false;
@@ -1229,17 +1378,18 @@ export class ChessController {
         adopted = true;
       }
       this.chess = chess;
-      next = { ...noOffer(next), m: [...game.m, extra] };
+      next = this.moved(next, other(game.me), extra);
     } else if (!isPrefix(moves, game.m)) {
       return this.outOfStep(g);
     }
     if (x && !next.x) {
       if (this.acceptEnd(next, x, moves.length)) {
         next = { ...noOffer(next), x };
-        // The sender resigned one ply short of ours, and that ply is this side's own: a move made while the sender
-        // was away, which it never saw. The game ended before it, so it goes, and both sides hold the same history.
+        // The sender resigned (or aborted) one ply short of ours, and that ply is this side's own: a move made while
+        // the sender was away, or that crossed its abort, which it never saw. The game ended before it, so it goes, and
+        // both sides hold the same history.
         const last = game.m.length - 1;
-        if (x.why === "resign" && moves.length === last && last >= 0 && (last % 2 === 0) === (game.me === "w")) {
+        if ((x.why === "resign" || x.why === "aborted") && moves.length === last && last >= 0 && (last % 2 === 0) === (game.me === "w")) {
           const chess = replay(moves);
           if (chess) {
             this.chess = chess;
@@ -1251,9 +1401,12 @@ export class ChessController {
         }
       } else this.notice("bad-message");
     }
-    // The sender's standing draw offer, at this very ply (version 2 only).
-    if (!next.x && !next.d && sync.d && sync.d[0] === other(next.me) && sync.d[1] === next.m.length && moves.length === next.m.length) {
-      next = { ...next, d: "peer", dn: sync.d[1] };
+    // The sender's standing draw offer (version 2 only): made at this very ply, or one ply back when that ply is the
+    // sender's own, which an offer stands through.
+    const plies = next.m.length;
+    const d = sync.d;
+    if (!next.x && !next.d && d && d[0] === other(next.me) && moves.length === plies && (d[1] === plies || (d[1] === plies - 1 && plyBy(d[1]) === d[0] && this.has("takeback")))) {
+      next = { ...next, d: "peer", dn: d[1] };
     }
     if (next.x) this.pending = null;
     if (next.x && next.pc !== undefined) next = without(next, "pc");
@@ -1286,12 +1439,14 @@ export class ChessController {
       case "resign":
         return x.by === sender;
       case "agreed":
-        return game.d === "me" && (game.dn ?? game.m.length) === game.m.length && plies === game.m.length;
+        // Our offer stands (it lapses when the contact moves), on the board the sender holds.
+        return game.d === "me" && plies === game.m.length;
       case "time":
         // The sender's own flag, on its own turn at that ply count (C6).
         return Boolean(game.tc) && this.negotiator.features.includes("clock") && x.by === sender && (plies % 2 === 0) === (sender === "w");
       case "aborted":
-        return this.negotiator.features.includes("abort") && game.m.length < 2 && plies < 2;
+        // Before ply 2 on the sender's board. Ours may hold one more ply, our own, that crossed the abort: it goes.
+        return this.has("abort") && plies < 2 && (game.m.length === plies || (game.m.length === plies + 1 && plyBy(plies) === game.me));
       case "disputed":
         return game.fl !== undefined && game.fl === plies;
     }
@@ -1310,9 +1465,10 @@ export class ChessController {
     if (!this.game || this.game.g !== g || this.flip) return;
     if (this.ended()) return;
     const plies = this.game.m.length;
-    if (n !== undefined && n !== plies) return;
     const d = this.game.d;
     if (option === "offer") {
+      // An offer about another position is no offer.
+      if (n !== undefined && n !== plies) return;
       // Both offered: that is a draw.
       this.game = d === "me" ? { ...noOffer(this.game), x: { why: "agreed" } } : { ...this.game, d: "peer", dn: plies };
     } else if (d !== "me") {
@@ -1417,12 +1573,54 @@ export class ChessController {
   }
 
   /**
-   * A takeback. This build names no "takeback" feature, so a contact does not ask; an answer counts only for an ask
-   * of ours (q) at that ply count, and this side never asks. Either way, nothing changes.
+   * A takeback frame (both named "takeback"). An ask must name the ply the sender's last move came from (one ply
+   * back, or two when this side already replied); any other n is stale. One declined here is not shown again. An
+   * answer counts only for our pending ask q at that ply count.
    */
   private async onTakeback(g: string, n: number, option: TakebackOption): Promise<void> {
-    if (!this.game || this.game.g !== g || this.ended()) return;
-    if (option !== "ask" && this.game.q !== n) return;
+    const game = this.game;
+    if (!game || game.g !== g || this.flip || this.ended() || !this.has("takeback")) return;
+    if (option === "ask") {
+      if (n !== lastPlyOf(other(game.me), game.m.length) || this.refused === this.key(game, n)) return;
+      this.heard = this.mono();
+      this.peerAsk = n;
+      return this.changed();
+    }
+    if (game.q !== n) return;
+    this.heard = this.mono();
+    if (option === "accept") return this.takeBack(n);
+    this.game = without(game, "q");
+    await this.saveGame();
+    this.notice("takeback-declined");
+    this.changed();
+  }
+
+  /**
+   * A takeback accepted, here or by the contact: both cut the moves back to n plies and restore both clocks from k.
+   * The epoch tb goes up by one. The asker is to move: its turn starts now (tw); the other side's bound on it starts
+   * at its accept (ts, C4, set as the accept goes). A clamp on a ply taken back goes with it (ko, C5).
+   */
+  private async takeBack(n: number): Promise<void> {
+    const game = this.game!;
+    let next = without({ ...game, m: game.m.slice(0, n), tb: (game.tb ?? 0) + 1 }, "q", "d", "dn", "pc", "fl", "tw", "ts");
+    this.chess = replay(next.m) ?? new Chess();
+    this.peerAsk = null;
+    this.pending = null;
+    this.turnStart = this.tsMono = undefined;
+    this.lastAck = null;
+    this.heard = this.mono();
+    if (game.tc) {
+      next.k = alignedK(game).slice(0, n);
+      if (game.ko && (game.kj === undefined || n <= game.kj)) next = without(next, "ko", "kj");
+      if (this.chess.turn() === game.me) {
+        next = this.myTurn(next);
+        await this.sendAck(next);
+      }
+    }
+    this.game = next;
+    await this.saveGame();
+    this.notice("taken-back");
+    this.changed();
   }
 
   private async answerDrawNow(accept: boolean): Promise<void> {

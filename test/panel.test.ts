@@ -267,7 +267,8 @@ describe("the game-over card", () => {
     expect(card.querySelector(".over-head")!.textContent).toBe("Black wins");
     expect(card.querySelector(".over-reason")!.textContent).toBe("Checkmate");
     expect(document.activeElement).toBe(card.querySelector(".over-head"));
-    expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["New game", "Copy PGN", "Review"]);
+    // Alone, no Rematch.
+    expect([...card.querySelectorAll("button")].filter((b) => !b.hidden).map((b) => b.textContent)).toEqual(["New game", "Copy PGN", "Review"]);
     // The status line keeps its words.
     expect(root.querySelector(".status")!.textContent).toBe("Black wins: checkmate");
     card.querySelector<HTMLButtonElement>(".over-review")!.click();
@@ -287,9 +288,10 @@ describe("the game-over card", () => {
   it("has no Review for a game that ended before its first move", async () => {
     const { white, black } = await startChat();
     const root = mount(white);
-    root.querySelector<HTMLButtonElement>(".actions .danger")!.click();
+    // Before ply 2, Abort is the danger button: no result, nothing to review.
     root.querySelector<HTMLButtonElement>(".actions .danger")!.click();
     await settle(white, black);
+    expect(root.querySelector(".over-head")!.textContent).toBe("No result");
     const card = root.querySelector<HTMLElement>(".over")!;
     expect(card.hidden).toBe(false);
     expect(card.querySelector<HTMLButtonElement>(".over-review")!.hidden).toBe(true);
@@ -303,10 +305,10 @@ describe("the game-over card", () => {
   it("leaves focus where it was when it was not on the board", async () => {
     const { white, black } = await startChat();
     const root = mount(black);
-    await play({ white, black }, "e2e4");
+    await play({ white, black }, "e2e4", "e7e5", "g1f3");
     const resign = root.querySelector<HTMLButtonElement>(".actions .danger")!;
     resign.click();
-    root.querySelector<HTMLButtonElement>(".actions .danger")!.click();
+    document.querySelector<HTMLButtonElement>(".resign-dialog .resign-confirm")!.click();
     await settle(white, black);
     const card = root.querySelector<HTMLElement>(".over")!;
     expect(card.hidden).toBe(false);

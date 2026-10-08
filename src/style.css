@@ -137,6 +137,8 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .move .san:hover { background: var(--btn); }
 .move .san.current { font-weight: 700; background: var(--btn); box-shadow: inset 0 -2px 0 var(--accent); }
 .move .san:focus-visible { outline: 3px solid var(--accent); outline-offset: -1px; }
+/* A standing draw offer: ½ after the offerer's move. */
+.move .san.draw::after { content: "½"; margin-inline-start: 3px; font-size: 12px; font-weight: 700; color: var(--accent); }
 /* Narrow: the moves are one row that scrolls sideways, as on chess.com's phone layout. */
 .app[data-layout="narrow"] .moves { display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
 .app[data-layout="narrow"] .move { flex: none; }
@@ -173,6 +175,7 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .info-btn[hidden] { display: none; }
 .info-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .dialog-text { margin: 0; max-width: 34em; }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 
 .act {
   font: inherit; font-size: 14px; padding: 7px 12px; min-height: 36px; border-radius: 8px; border: 1px solid transparent;
@@ -252,6 +255,8 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 .sq.capture::after { width: 100%; height: 100%; background: radial-gradient(transparent 0, transparent 77%, rgba(0, 0, 0, 0.16) 78%); }
 .sq.hover { box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.75); }
+/* A premove: its two squares in a blue wash, apart from the last move's yellow. */
+.sq.premove { background-image: linear-gradient(rgba(20, 85, 200, 0.45), rgba(20, 85, 200, 0.45)); }
 .sq:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; z-index: 2; }
 .board.locked .sq { cursor: default; }
 .sq .piece { width: 100%; height: 100%; pointer-events: none; }
@@ -312,6 +317,7 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   .sq.target::after, .sq.capture::after { background: none; border: 3px solid Highlight; }
   .sq.check { outline: 4px double LinkText; outline-offset: -5px; }
   .sq.hover { outline: 3px solid Highlight; outline-offset: -3px; }
+  .sq.premove { outline: 3px dotted Highlight; outline-offset: -3px; }
   .board-wrap.reviewing { outline: 3px dashed Highlight; outline-offset: 2px; }
   .over, .card { border: 2px solid CanvasText; forced-color-adjust: auto; }
   .act.preset[aria-pressed="true"] { outline: 2px solid Highlight; }

@@ -18,14 +18,14 @@ describe("prefs", () => {
   });
 
   it("default to the chess.com look: green board, drawn pieces, coordinates, legal moves", () => {
-    expect(DEFAULT_PREFS).toEqual({ v: 1, theme: "green", pieces: "cburnett", coords: true, autoQueen: false, legal: true, sound: true, premove: false, turned: false });
+    expect(DEFAULT_PREFS).toEqual({ v: 1, theme: "green", pieces: "cburnett", coords: true, autoQueen: false, legal: true, sound: true, premove: true, turned: false });
   });
 
   it("round-trip through the broker's strict-JSON storage, per chat", async () => {
     const broker = new MockBroker("ana");
     const store = new PrefsStore(broker);
     await store.load();
-    await store.set({ theme: "brown", pieces: "classic", coords: false, autoQueen: true, legal: false, turned: true });
+    await store.set({ theme: "brown", pieces: "classic", coords: false, autoQueen: true, legal: false, premove: false, turned: true });
     const again = new PrefsStore(broker);
     expect(await again.load()).toEqual({ v: 1, theme: "brown", pieces: "classic", coords: false, autoQueen: true, legal: false, sound: true, premove: false, turned: true });
     // Another chat's broker has its own.

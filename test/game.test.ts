@@ -340,16 +340,18 @@ describe("invitations in version 2", () => {
     }
   });
 
-  it("refuses a rematch of a game this side does not hold as its last one", async () => {
+  it("declines a rematch of a game this side does not hold as its last one", async () => {
     const [a, b] = chatPair();
     const ana = await open(a);
     b.launch();
     await settle(ana);
     a.inject(encodeMessage({ k: "hello", pv: 2, f: ["rematch"] }));
-    a.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [], r: "0123456789abcdef" }));
+    const c = commitment(newSalt());
+    a.inject(encodeMessage({ k: "seek", c, a: [], r: "0123456789abcdef" }));
     await settle(ana);
-    expect(ana.notices).toEqual(["bad-message"]);
+    expect(ana.notices).toEqual([]);
     expect(ana.game.view().invitation).toBeUndefined();
+    expect(a.sent.at(-1)).toEqual({ p: "chess", v: 2, k: "decline", c });
   });
 });
 
@@ -453,22 +455,27 @@ describe("terms this build cannot play", () => {
     expect(kinds(a).at(-1)).toBe("decline");
   });
 
-  it("shows a rematch invitation from a contact with rematches, but never accepts it", async () => {
-    const sides = await start();
-    await sides.white.game.resign();
-    await settle(sides.white, sides.black);
-    const last = saved(sides.black).g;
-    const black = sides.black;
-    // The contact (white's side, scripted from here) names rematches and asks for one.
-    black.broker.inject(encodeMessage({ k: "hello", pv: 2, f: ["rematch"] }));
-    black.broker.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [last], r: last }));
-    await settle(black);
-    expect(black.game.view().invitation).toEqual({ r: last, rematch: true, playable: false });
-    const sent = black.broker.sent.length;
-    await black.game.acceptInvitation();
-    await settle(black);
-    expect(black.broker.sent.length).toBe(sent);
-    expect(black.broker.stored.has("flip")).toBe(false);
+  it("shows a rematch invitation to a build without rematches (2.1.0), but never accepts it", async () => {
+    const [a, b] = chatPair();
+    const last = "0123456789abcdef";
+    a.stored.set("prev", JSON.stringify({ g: last, me: "w" }));
+    a.launch();
+    const ana: Side = { broker: a, game: new ChessController(a, { features: ["clock"] }), notices: [] };
+    ana.game.onNotice((n) => ana.notices.push(n));
+    await ana.game.start();
+    b.launch();
+    await settle(ana);
+    // The contact (scripted) names rematches and asks for one.
+    a.inject(encodeMessage({ k: "hello", pv: 2, f: ["clock", "rematch"] }));
+    a.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [], r: last }));
+    await settle(ana);
+    expect(ana.game.view().invitation).toEqual({ r: last, rematch: true, playable: false });
+    const sent = a.sent.length;
+    await ana.game.acceptInvitation();
+    await settle(ana);
+    expect(a.sent.length).toBe(sent);
+    expect(a.stored.has("flip")).toBe(false);
+    expect(ana.notices).toEqual([]);
   });
 });
 

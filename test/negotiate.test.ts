@@ -145,7 +145,7 @@ describe("negotiation on the mock broker", () => {
     await settle(ana);
     // The contact's hello (not an answer) is answered with re: 1, then the opening.
     expect(kinds(a.sent)).toEqual(["2:hello", "2:hello", "2:seek"]);
-    expect(a.sent[1]).toEqual({ p: "chess", v: 2, k: "hello", pv: 2, f: ["clock"], re: 1 });
+    expect(a.sent[1]).toEqual({ p: "chess", v: 2, k: "hello", pv: 2, f: ["clock", "takeback", "rematch", "abort"], re: 1 });
   });
 
   it("switches to version 1 on a v1 seek and answers it as 1.0.2 does: its own seek, then the reveal", async () => {

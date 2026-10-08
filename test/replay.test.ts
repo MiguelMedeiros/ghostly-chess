@@ -158,6 +158,9 @@ describe("a sync's end", () => {
 
   it("is not taken for an abort unless both named \"abort\" (2.0.0 names none), nor after ply 2", async () => {
     const early = await game("e2e4");
+    // The contact's hello names nothing, as 2.0.0's does.
+    await from(early.black, { k: "hello", pv: 2, f: [] });
+    early.black.notices.length = 0;
     await from(early.black, sync(early.black, { why: "aborted" }));
     expect(early.black.notices).toEqual(["bad-message"]);
     expect(early.black.game.view().end).toBeUndefined();

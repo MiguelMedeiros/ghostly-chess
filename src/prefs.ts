@@ -28,7 +28,7 @@ export type Prefs = {
   legal: boolean;
   /** Sounds: moves, captures, checks and the game's start and end (sound.ts). */
   sound: boolean;
-  /** Premoves (a later version). */
+  /** Premoves: a move queued on the contact's turn (premove.ts). */
   premove: boolean;
   /** The board is turned from its default orientation. */
   turned: boolean;
@@ -44,7 +44,7 @@ export const DEFAULT_PREFS: Readonly<Prefs> = Object.freeze({
   autoQueen: false,
   legal: true,
   sound: true,
-  premove: false,
+  premove: true,
   turned: false,
 });
 

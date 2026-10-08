@@ -12,10 +12,14 @@
  * the controller's targets(). Keyboard: the board is one tab stop (a roving tabindex); arrows move between squares as
  * they are drawn, Home and End go to the ends of a row, Enter or Space picks a piece and then its square, Escape lets
  * go. The promotion picker opens over the promotion file, with focus on the queen.
+ *
+ * Premoves (premove.ts): on the contact's turn, with the setting on, the same input queues one move instead, drawn in
+ * its own highlight. Escape, a right-click, a long press (touch) or a click on a square that is not a target drops it.
  */
 import type { Square } from "chess.js";
 import type { ChessController, LastMove, View } from "./game.ts";
 import { glyph, pieceSvg, type PieceSet } from "./pieces.ts";
+import type { Premove } from "./premove.ts";
 import type { Prefs, PrefsStore } from "./prefs.ts";
 import type { Strings } from "./strings.ts";
 
@@ -31,6 +35,8 @@ const DRAG_THRESHOLD_PX = 4;
 /** How long after a press its own click may still come (a touch's click is synthesized later than a mouse's). */
 const CLICK_AFTER_PRESS_MS = 800;
 const SLIDE_MS = 120;
+/** A press held this long on touch drops a premove, as a right-click does. */
+const LONG_PRESS_MS = 500;
 
 /** What a square shows, as last written to it. */
 interface Drawn {
@@ -99,6 +105,7 @@ export class Board {
    */
   private suppressClick: { square: Square; until: number } | null = null;
   private promotion: { from: Square; to: Square; element: HTMLElement } | null = null;
+  private longPress: ReturnType<typeof setTimeout> | undefined;
   /** The ply count after a dropped move: that move does not slide. */
   private noSlide = -1;
   private plies = -1;
@@ -109,6 +116,7 @@ export class Board {
     private readonly game: BoardGame,
     private readonly t: Strings,
     private readonly store: PrefsStore,
+    private readonly premove?: Premove,
   ) {
     this.prefs = store.get();
     this.view = game.view();
@@ -199,11 +207,11 @@ export class Board {
     this.element.classList.toggle("classic", this.prefs.pieces === "classic");
     this.element.dataset.theme = this.prefs.theme;
     this.coords.hidden = !this.prefs.coords;
-    if (this.selected && !view.canMove) this.selected = null;
+    if (this.selected && !this.live(view)) this.selected = null;
     if (this.promotion && !view.canMove) this.closePromotion(false);
     this.drawSquares();
     if (refocus) this.squares.get(this.focus)?.focus();
-    this.grid.classList.toggle("locked", !view.canMove);
+    this.grid.classList.toggle("locked", !this.live(view));
     this.plies = view.plies;
     if (previous >= 0 && view.plies === previous + 1 && view.lastMove && view.plies !== this.noSlide) this.slide(view.lastMove);
   }
@@ -211,6 +219,32 @@ export class Board {
   destroy(): void {
     for (const off of this.offs.splice(0)) off();
     this.endDrag();
+    clearTimeout(this.longPress);
+  }
+
+  /** Drops the premove queued, if any, and the piece picked for one. */
+  dropPremove(): void {
+    if (!this.premove?.get()) return;
+    this.selected = null;
+    this.premove.clear();
+  }
+
+  // ---------- premoves ----------
+
+  /** A premove may be queued now: the contact's turn, live, with the setting on. */
+  private premoving(view: View = this.view): boolean {
+    return Boolean(this.premove && this.prefs.premove && !view.canMove && view.canPremove);
+  }
+
+  /** This side may move or premove now. */
+  private live(view: View): boolean {
+    return view.canMove || this.premoving(view);
+  }
+
+  /** Where a piece may go now: a move on this side's turn, a premove on the contact's. */
+  private targetsOf(square: Square): { to: Square; promotion: boolean }[] {
+    if (this.view.canMove) return this.game.targets(square);
+    return this.premoving() ? this.premove!.targets(square).map((to) => ({ to, promotion: false })) : [];
   }
 
   // ---------- drawing ----------
@@ -232,7 +266,8 @@ export class Board {
   private drawSquares(): void {
     const view = this.view;
     const t = this.t;
-    const targets = this.selected ? this.game.targets(this.selected) : [];
+    const targets = this.selected ? this.targetsOf(this.selected) : [];
+    const queued = this.premove?.get();
     const targetSet = new Set(targets.map((m) => m.to));
     const showTargets = this.prefs.legal;
     const grid = this.game.board();
@@ -247,6 +282,8 @@ export class Board {
       if (square === this.selected) classes.push("selected");
       if (target && showTargets) classes.push(piece ? "target capture" : "target");
       if (last) classes.push("last");
+      const pre = Boolean(queued && (queued.from === square || queued.to === square));
+      if (pre) classes.push("premove");
       if (view.inCheck && piece?.type === "k" && piece.color === view.turn) classes.push("check");
       if (square === this.dragFrom) classes.push("dragging");
       if (square === this.hover) classes.push("hover"); // last: markHover relies on it
@@ -254,6 +291,7 @@ export class Board {
       if (square === this.selected) parts.push(t.selected);
       if (target) parts.push(t.canMoveHere);
       if (last) parts.push(t.lastMove);
+      if (pre) parts.push(t.premove);
       const next: Drawn = {
         piece: key,
         set: key ? set : "",
@@ -341,7 +379,13 @@ export class Board {
     this.offs.push(() => window.removeEventListener("blur", blur));
     on(this.grid, "keydown", (e) => this.key(e));
     on(this.grid, "contextmenu", (e) => {
-      if (this.press) e.preventDefault();
+      // A right-click (or a long press) drops a premove.
+      if (this.press || this.premove?.get()) e.preventDefault();
+      if (this.premove?.get()) {
+        this.press = null;
+        this.endDrag();
+        this.dropPremove();
+      }
     });
   }
 
@@ -370,12 +414,21 @@ export class Board {
     if (this.promotion) return;
     this.focus = square;
     const view = this.game.view();
-    if (!view.canMove) return this.render(view);
-    if (this.selected && this.selected !== square && this.game.targets(this.selected).some((m) => m.to === square)) {
+    this.view = view;
+    if (event.pointerType !== "mouse" && this.premove?.get()) {
+      clearTimeout(this.longPress);
+      this.longPress = setTimeout(() => {
+        this.press = null;
+        this.endDrag();
+        this.dropPremove();
+      }, LONG_PRESS_MS);
+    }
+    if (!this.live(view)) return this.render(view);
+    if (this.selected && this.selected !== square && this.targetsOf(this.selected).some((m) => m.to === square)) {
       this.play(this.selected, square, false);
       return;
     }
-    if (this.game.targets(square).length) {
+    if (this.targetsOf(square).length) {
       const wasSelected = this.selected === square;
       this.selected = square;
       this.press = { square, pointerId: event.pointerId, x: event.clientX, y: event.clientY, wasSelected, dragging: false };
@@ -383,6 +436,7 @@ export class Board {
       return;
     }
     this.selected = null;
+    this.premove?.clear();
     this.render(view);
   }
 
@@ -391,6 +445,7 @@ export class Board {
     if (!press || event.pointerId !== press.pointerId) return;
     if (!press.dragging) {
       if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_THRESHOLD_PX) return;
+      clearTimeout(this.longPress);
       this.startDrag(press, event);
     }
     this.moveGhost(event);
@@ -415,6 +470,7 @@ export class Board {
   }
 
   private pointerUp(event: PointerEvent): void {
+    clearTimeout(this.longPress);
     const press = this.press;
     if (!press || event.pointerId !== press.pointerId) return;
     this.press = null;
@@ -430,11 +486,12 @@ export class Board {
     }
     const to = this.squareAt(event);
     this.endDrag();
-    if (to && to !== press.square && this.game.targets(press.square).some((m) => m.to === to)) this.play(press.square, to, true);
+    if (to && to !== press.square && this.targetsOf(press.square).some((m) => m.to === to)) this.play(press.square, to, true);
     else this.render(this.game.view()); // snaps back; the piece stays picked
   }
 
   private pointerCancel(event: PointerEvent): void {
+    clearTimeout(this.longPress);
     const press = this.press;
     if (!press || event.pointerId !== press.pointerId) return;
     this.press = null;
@@ -482,17 +539,27 @@ export class Board {
   private activate(square: Square): void {
     this.focus = square;
     const view = this.game.view();
-    if (!view.canMove || this.promotion) return this.render(view);
-    if (this.selected && this.game.targets(this.selected).some((m) => m.to === square)) return this.play(this.selected, square, false);
-    this.selected = this.selected !== square && this.game.targets(square).length ? square : null;
+    this.view = view;
+    if (!this.live(view) || this.promotion) return this.render(view);
+    if (this.selected && this.targetsOf(this.selected).some((m) => m.to === square)) return this.play(this.selected, square, false);
+    this.selected = this.selected !== square && this.targetsOf(square).length ? square : null;
+    // A click on a square that is not a target drops the premove.
+    if (!this.selected) this.premove?.clear();
     this.render(view);
   }
 
   /** Plays from → to (a legal target), asking for the promotion piece when it promotes. */
   private play(from: Square, to: Square, dropped: boolean): void {
-    const target = this.game.targets(from).find((m) => m.to === to);
+    const target = this.targetsOf(from).find((m) => m.to === to);
     if (!target) return;
     this.focus = to;
+    if (!this.view.canMove) {
+      // The contact's turn: a premove (a pawn reaching the last rank will be a queen).
+      this.selected = null;
+      this.premove?.set(from, to);
+      this.render(this.game.view());
+      return;
+    }
     if (target.promotion && !this.prefs.autoQueen) {
       this.openPromotion(from, to);
       return;
@@ -520,6 +587,7 @@ export class Board {
         return this.activate(this.focus);
       case "Escape":
         this.selected = null;
+        this.premove?.clear();
         return this.render(this.game.view());
       default:
         return;

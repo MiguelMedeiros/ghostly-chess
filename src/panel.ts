@@ -61,9 +61,10 @@ export interface MoveList {
   readonly element: HTMLOListElement;
   /**
    * Shows the game's moves with `ply` (1 is white's first) as the current one; 0 is the start, no move current.
-   * `spent` is the time each ply took, in a timed game (none for plies 0 and 1).
+   * `spent` is the time each ply took, in a timed game (none for plies 0 and 1). `draw` is the ply index a standing
+   * draw offer is shown at, with a ½ chip.
    */
-  render(record: GameHistory, ply: number, spent?: readonly (number | undefined)[]): void;
+  render(record: GameHistory, ply: number, spent?: readonly (number | undefined)[], draw?: number): void;
 }
 
 export function createMoveList(t: Strings, pick: (ply: number) => void): MoveList {
@@ -127,7 +128,7 @@ export function createMoveList(t: Strings, pick: (ply: number) => void): MoveLis
 
   return {
     element: list,
-    render(record, ply, spent) {
+    render(record, ply, spent, draw) {
       const shown = buttons.length;
       // The same game with more moves: only the new ones are added. Anything else (a new game) starts afresh.
       if (shown > record.plies.length || record.fens[shown] !== shownFen) {
@@ -138,6 +139,7 @@ export function createMoveList(t: Strings, pick: (ply: number) => void): MoveLis
       } else for (let i = shown; i < record.plies.length; i++) add(record, i);
       shownFen = record.fens[record.plies.length];
       if (spent) for (let i = 0; i < buttons.length; i++) time(record, i, spent[i]);
+      buttons.forEach((b, i) => b.classList.toggle("draw", i === draw));
       list.hidden = buttons.length === 0;
       const next = ply > 0 ? (buttons[ply - 1] ?? null) : null;
       const hadFocus = list.contains(document.activeElement);
@@ -274,12 +276,15 @@ export function overText(view: View, t: Strings): { head: string; reason: string
 
 export interface GameOver {
   readonly element: HTMLElement;
-  /** Shows the card for this ending, once: after Review it stays closed until another ending. */
-  render(view: View, key: string, focusIt: boolean): void;
+  /**
+   * Shows the card for this ending, once: after Review it stays closed until another ending. `rematch`: Rematch shows
+   * (a chat game that is this side's last one), and the reason it is off when the contact's Chess cannot play one.
+   */
+  render(view: View, key: string, focusIt: boolean, rematch?: { reason?: string }): void;
   close(): void;
 }
 
-export function createGameOver(t: Strings, actions: { newGame: () => void; copyPgn: (opener: HTMLElement) => void; review: () => void }): GameOver {
+export function createGameOver(t: Strings, actions: { newGame: () => void; rematch: () => void; copyPgn: (opener: HTMLElement) => void; review: () => void }): GameOver {
   const card = el("section", "over");
   card.hidden = true;
   const head = el("h2", "over-head");
@@ -305,7 +310,9 @@ export function createGameOver(t: Strings, actions: { newGame: () => void; copyP
     if (review || hadFocus) actions.review();
   };
   const reviewButton = button(t.review, "over-review", () => close(true));
-  row.append(button(t.newGame, "primary over-new", () => actions.newGame()), button(t.copyPgn, "over-pgn", (b) => actions.copyPgn(b)), reviewButton);
+  const rematch = button(t.rematch, "primary over-rematch", () => actions.rematch());
+  const newGame = button(t.newGame, "primary over-new", () => actions.newGame());
+  row.append(rematch, newGame, button(t.copyPgn, "over-pgn", (b) => actions.copyPgn(b)), reviewButton);
   card.append(head, reason, row);
   card.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
@@ -314,7 +321,7 @@ export function createGameOver(t: Strings, actions: { newGame: () => void; copyP
   });
   return {
     element: card,
-    render(view, key, focusIt) {
+    render(view, key, focusIt, offer) {
       const text = overText(view, t);
       if (!text || key === closedFor) {
         card.hidden = true;
@@ -327,6 +334,12 @@ export function createGameOver(t: Strings, actions: { newGame: () => void; copyP
       reason.textContent = text.reason;
       // A game that ended before its first move (a resignation) has nothing to review.
       reviewButton.hidden = view.plies === 0;
+      rematch.hidden = !offer;
+      // One primary action: Rematch when it shows.
+      newGame.classList.toggle("primary", !offer);
+      rematch.disabled = Boolean(offer?.reason);
+      if (offer?.reason) rematch.title = offer.reason;
+      else rematch.removeAttribute("title");
       const fresh = shownFor !== key || card.hidden;
       shownFor = key;
       card.hidden = false;

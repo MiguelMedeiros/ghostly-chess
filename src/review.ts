@@ -1,6 +1,6 @@
 /**
  * A review cursor over the live game. The board is drawn from it: live, it is the game itself; reviewing, it shows the
- * position after the ply under the cursor, and no move can be made (premoves, when they come, are off too).
+ * position after the ply under the cursor, and no move can be made (nor a premove queued).
  *
  * The game goes on underneath: the contact's moves still land in the move list (with their sound, which the page
  * plays from the live game), while the board stays at the cursor. Reaching the last ply, Last, or Back to live return
@@ -132,6 +132,7 @@ export class Review implements BoardGame {
       lastMove: ply ? lastMoveOf(ply) : undefined,
       inCheck: ply?.check ?? false,
       canMove: false,
+      canPremove: false,
     };
   }
 
