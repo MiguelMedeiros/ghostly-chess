@@ -41,7 +41,7 @@ export function soundOf(before: Seen | null, view: View): SoundName | undefined 
     if (move.captured) return "capture";
     return "move";
   }
-  if (view.phase === "playing" && view.plies === 0 && before.phase === "toss") return "start";
+  if (view.phase === "playing" && view.plies === 0 && (before.phase === "toss" || before.phase === "setup" || before.phase === "invited")) return "start";
   return undefined;
 }
 

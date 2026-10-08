@@ -34,7 +34,7 @@ export class MockBroker implements MiniAppApi {
 
   constructor(
     readonly name: string,
-    readonly version = "1.0.0",
+    public version = "2.0.0",
     readonly inChat = true,
   ) {}
 
@@ -115,8 +115,12 @@ export class MockBroker implements MiniAppApi {
     });
   }
 
-  /** The contact's app opened or closed, as the broker says it (tests may say it at a chosen moment). */
+  /**
+   * The contact's app opened or closed, as the broker says it (tests may say it at a chosen moment). An app that is
+   * not open gets no event: it learns who is open from context() when it starts.
+   */
   emitPeer(event: MiniAppPeerEvent): void {
+    if (!this.isOpen) return;
     this.inFlight++;
     this.incoming = this.incoming.then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -127,10 +131,10 @@ export class MockBroker implements MiniAppApi {
   }
 }
 
-/** Two sides of one chat. */
-export function chatPair(): [MockBroker, MockBroker] {
-  const a = new MockBroker("ana");
-  const b = new MockBroker("bob");
+/** Two sides of one chat, with the Chess versions their clients report (protocol 2 by default). */
+export function chatPair(anaVersion = "2.0.0", bobVersion = anaVersion): [MockBroker, MockBroker] {
+  const a = new MockBroker("ana", anaVersion);
+  const b = new MockBroker("bob", bobVersion);
   a.peer = b;
   b.peer = a;
   return [a, b];

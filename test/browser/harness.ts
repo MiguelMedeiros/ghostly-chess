@@ -10,6 +10,10 @@
  * - "frame": inside <iframe sandbox="allow-scripts"> with a <meta> CSP like the web runner's, so what the runner's
  *   sandbox forbids fails here too. Every CSP violation is recorded (window.__violations in the frame).
  *
+ * Each side reports a Chess version (2.0.0 by default), as the client does in context() and in the contact's peer
+ * events, and may load another page than the build: the published Chess 1.0.2 (fixtures/chess-1.0.2.html) plays
+ * against this build through the same relay.
+ *
  * Nothing leaves the machine: every URL is answered by page.route.
  */
 import { readFileSync } from "node:fs";
@@ -89,9 +93,16 @@ function installBroker(options: BrokerOptions): void {
   void call("__chessHello");
 }
 
+/** The published Chess 1.0.2 page (checked against its digest in test/legacy.test.ts and compat.spec.ts). */
+export function chess102Page(): string {
+  return readFileSync(join(import.meta.dirname, "fixtures/chess-1.0.2.html"), "utf8");
+}
+
 /** One side: its page and the frame Chess runs in. */
 export interface Side {
   name: string;
+  /** The Chess version this side's client reports. */
+  version: string;
   page: Page;
   context: BrowserContext;
   /** The frame Chess runs in, once its broker said hello. */
@@ -119,27 +130,31 @@ export async function openSide(
     init?: (() => void)[];
     /** The client's locale (default "en"). */
     locale?: string;
+    /** The Chess version the client reports for this side (default "2.0.0"). */
+    version?: string;
+    /** The page to load instead of the build (the published 1.0.2). */
+    html?: string;
   },
 ): Promise<Side> {
-  const { name, mode = "top", inChat = true } = options;
+  const { name, mode = "top", inChat = true, version = "2.0.0" } = options;
   const sides = options.sides ?? new Map<string, Side>();
   const relay = options.relay ?? { latency: 0 };
   const context = await browser.newContext(options.contextOptions);
   const page = await context.newPage();
-  const html = builtPage();
+  const html = options.html ?? builtPage();
   await page.route(`${ORIGIN}/**`, (route) =>
     route.fulfill({ contentType: "text/html", body: mode === "frame" ? framedHost(html) : html }),
   );
   let resolveFrame!: (frame: Frame) => void;
   const ready = new Promise<Frame>((resolve) => (resolveFrame = resolve));
-  const side = { name, page, context } as Side;
+  const side = { name, version, page, context } as Side;
   await page.exposeBinding("__chessHello", async ({ frame }) => {
     side.frame = frame;
     // The other side is open: this one learns it from context(), the other from a peer event.
     const other = [...sides.values()].find((s) => s !== side && s.frame);
     if (other) {
-      await frame.evaluate((v) => (window as unknown as { __peerEvent: (e: unknown) => void }).__peerEvent({ open: true, version: v }), "1.1.0");
-      await other.frame.evaluate((v) => (window as unknown as { __peerEvent: (e: unknown) => void }).__peerEvent({ open: true, version: v }), "1.1.0");
+      await frame.evaluate((v) => (window as unknown as { __peerEvent: (e: unknown) => void }).__peerEvent({ open: true, version: v }), other.version);
+      await other.frame.evaluate((v) => (window as unknown as { __peerEvent: (e: unknown) => void }).__peerEvent({ open: true, version: v }), version);
     }
     resolveFrame(frame);
   });
@@ -152,7 +167,7 @@ export async function openSide(
     }, relay.latency);
     return true;
   });
-  await page.addInitScript(installBroker, { name, version: "1.1.0", inChat, locale: options.locale ?? "en", childOnly: mode === "frame" } satisfies BrokerOptions);
+  await page.addInitScript(installBroker, { name, version, inChat, locale: options.locale ?? "en", childOnly: mode === "frame" } satisfies BrokerOptions);
   for (const script of options.init ?? []) await page.addInitScript(script);
   sides.set(name, side);
   await page.goto(`${ORIGIN}/index.html`);
@@ -160,17 +175,25 @@ export async function openSide(
   return side;
 }
 
-/** Two sides of one chat, both open, colours tossed. */
+/**
+ * Two sides of one chat, both open, colours tossed. Both report `version`: with protocol 2 (the default) Ana invites
+ * to an unlimited game from the new-game panel and Bob accepts the card; with a 1.x version the toss starts by itself.
+ */
 export async function chatPair(
   browser: Browser,
   mode: Mode = "top",
   contextOptions?: BrowserContextOptions,
   init?: (() => void)[],
   locale?: string,
+  version = "2.0.0",
 ): Promise<{ white: Side; black: Side; sides: Side[] }> {
   const sides = new Map<string, Side>();
-  const ana = await openSide(browser, { name: "ana", mode, sides, contextOptions, init, locale });
-  const bob = await openSide(browser, { name: "bob", mode, sides, contextOptions, init, locale });
+  const ana = await openSide(browser, { name: "ana", mode, sides, contextOptions, init, locale, version });
+  const bob = await openSide(browser, { name: "bob", mode, sides, contextOptions, init, locale, version });
+  if (!/^1\./.test(version)) {
+    await ana.frame.locator(".setup .invite-btn").click();
+    await bob.frame.locator(".invitation .accept-invite").click();
+  }
   // Who plays white, whatever the language: the side whose e2 is nearer the bottom (the board turns for black).
   for (const side of [ana, bob]) await side.frame.locator(".side").filter({ hasText: /\S/ }).waitFor();
   const below = async (side: Side) => (await side.frame.locator('[data-square="e2"]').boundingBox())!.y > (await side.frame.locator('[data-square="e7"]').boundingBox())!.y;

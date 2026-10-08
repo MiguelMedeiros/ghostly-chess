@@ -71,7 +71,9 @@ const probe = (frame: Frame): Promise<Probe> =>
 
 test.describe("sounds in the sandboxed frame", () => {
   test("nothing plays before a click inside the frame; the context is made and resumed inside it, runs, and moves are heard", async ({ browser, browserName }) => {
-    const { white, black, sides } = await chatPair(browser, "frame", undefined, [watchAudio]);
+    // Both report a 1.x version, so the toss starts by itself: no click (an activation) in either frame before the
+    // test's own. With protocol 2, Invite and Accept would be clicks.
+    const { white, black, sides } = await chatPair(browser, "frame", undefined, [watchAudio], undefined, "1.2.0");
     const [w, b] = [white.frame, black.frame];
     await expect(w.locator(".status")).toHaveText(/^Your move/);
 

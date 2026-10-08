@@ -191,7 +191,7 @@ describe("the audio context", () => {
 });
 
 describe("one sound per event", () => {
-  const view = (over: Partial<View>): View => ({ phase: "playing", peerOpen: true, fen: "", turn: "w", plies: 1, inCheck: false, canMove: true, ...over });
+  const view = (over: Partial<View>): View => ({ phase: "playing", peerOpen: true, fen: "", turn: "w", plies: 1, inCheck: false, canMove: true, mode: "v2", features: [], ...over });
   const seen = (over: Partial<Seen> = {}): Seen => ({ plies: 0, phase: "playing", ended: false, ...over });
   const lastMove = { from: "e7", to: "e8", san: "x", colour: "w", piece: "p" } as const;
 

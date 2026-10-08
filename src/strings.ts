@@ -113,6 +113,37 @@ export const en = {
   copy: "Copy",
   copied: "Copied",
   copyByHand: "Copy the selected text (on a phone, press and hold it).",
+  why_time: "time",
+  why_aborted: "aborted",
+  why_disputed: "clocks disagree",
+  noResult: "No result",
+  notice_declined: "Your contact declined the invitation.",
+  setupTitle: "New game",
+  setupHint: "The toss decides who plays white.",
+  tc_unlimited: "Unlimited",
+  tc_bullet: "Bullet",
+  tc_blitz: "Blitz",
+  tc_rapid: "Rapid",
+  tc_classical: "Classical",
+  /** A time control in words: "Blitz, 5 min". */
+  tc_words: "{kind}, {min} min",
+  /** With an increment: "Blitz, 3 min + 2 s". */
+  tc_wordsInc: "{kind}, {min} min + {inc} s",
+  invite: "Invite",
+  setupStatus: "Invite your contact to a game",
+  invitedStatus: "Invitation sent",
+  invitedAway: "Your invitation goes when your contact opens Chess.",
+  invitesYou: "Your contact invites you: {terms}",
+  rematchYou: "Your contact asks for a rematch: {terms}",
+  canStillMove: "You can still make your move. It goes when they are back.",
+  compatBanner: "Your contact has Chess {version}. Clocks, takebacks and rematches come when they update.",
+  compatBannerOld: "Your contact has an older Chess. Clocks, takebacks and rematches come when they update.",
+  compatInfo: "About this",
+  /** Behind the compat banner's ⓘ. */
+  compatDetails: "Their Chess speaks the first version of the game's protocol, so you play untimed games with them, and a game you began keeps going when either of you updates. Ghostly updates apps on start, once a day and on the Apps page.",
+  needsUpdate: "Your contact needs to update Chess (they have {version})",
+  needsUpdateOld: "Your contact needs to update Chess",
+  comingSoon: "Coming in a later version of Chess",
 };
 
 export type Strings = typeof en;

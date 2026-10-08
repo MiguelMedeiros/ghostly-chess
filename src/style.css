@@ -139,6 +139,17 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .notice { margin: 0; color: var(--muted); font-size: 13px; line-height: 18px; }
 .notice:empty { min-height: 0; line-height: 0; } /* empty, but still in the tree: the alert region must exist before its text comes */
 .app[data-layout="narrow"] .notice { text-align: center; }
+/* The standing line: the away hint, a waiting invitation, or what the contact's older Chess lacks. A notice hides it. */
+.standing { margin: 0; color: var(--muted); font-size: 13px; line-height: 18px; }
+.standing[hidden], .notices:has(.notice:not(:empty)) .standing { display: none; }
+.app[data-layout="narrow"] .standing { text-align: center; }
+.info-btn {
+  all: unset; display: inline-block; margin-inline-start: 4px; padding: 0 2px; border-radius: 4px; color: var(--accent);
+  font-size: 15px; line-height: 18px; cursor: pointer;
+}
+.info-btn[hidden] { display: none; }
+.info-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dialog-text { margin: 0; max-width: 34em; }
 
 .act {
   font: inherit; font-size: 14px; padding: 7px 12px; min-height: 36px; border-radius: 8px; border: 1px solid transparent;
@@ -180,6 +191,24 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .over-head:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .over-reason { margin: 2px 0 10px; color: var(--muted); }
 .over-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+
+/* The new-game panel and the contact's invitation: cards on the board, like the game-over card. */
+.card {
+  position: absolute; left: 50%; top: 50%; z-index: 7; transform: translate(-50%, -50%); width: min(300px, 92%); max-height: 96%;
+  overflow: auto; padding: 12px; border-radius: 10px; text-align: center; background: var(--surface); color: var(--fg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.card[hidden] { display: none; }
+.card-head { margin: 0 0 8px; font-size: 17px; font-weight: 700; }
+.card-hint { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.card-hint[hidden] { display: none; }
+.card-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }
+.presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.act.preset { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 6px 4px; min-height: 44px; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.act.preset .preset-kind { font-size: 11px; font-weight: 400; color: var(--muted); }
+.act.preset[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.act.preset-unlimited { grid-column: span 3; }
+.invite-words { font-size: 15px; }
 .board {
   width: 100%; height: 100%; display: grid; grid-template-rows: repeat(8, 1fr); border-radius: 4px; overflow: hidden;
   /* Set before any touch: a touch-action set when a drag starts is too late, the browser has chosen to pan. */
@@ -261,7 +290,8 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   .sq.check { outline: 4px double LinkText; outline-offset: -5px; }
   .sq.hover { outline: 3px solid Highlight; outline-offset: -3px; }
   .board-wrap.reviewing { outline: 3px dashed Highlight; outline-offset: 2px; }
-  .over { border: 2px solid CanvasText; forced-color-adjust: auto; }
+  .over, .card { border: 2px solid CanvasText; forced-color-adjust: auto; }
+  .act.preset[aria-pressed="true"] { outline: 2px solid Highlight; }
   .move .san.current { outline: 2px solid Highlight; }
 }
 

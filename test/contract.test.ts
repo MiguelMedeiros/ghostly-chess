@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { PIECE_SETS } from "../src/pieces.ts";
 import { MockBroker, chatPair } from "./mockBroker.ts";
-import { mount, open, play, settle, sq, startAlone, startChat } from "./sides.ts";
+import { agree, mount, open, play, settle, sq, startAlone, startChat } from "./sides.ts";
 
 afterEach(() => document.body.replaceChildren());
 
@@ -32,10 +32,13 @@ describe.each(PIECE_SETS)("the end-to-end contract with the %s pieces", (set) =>
     }
   });
 
-  it("shows .status and .side exactly as 1.0.2 does", async () => {
+  it.each([
+    ["with Chess 1.0.2 (version 1)", "1.0.2"],
+    ["with protocol 2", "2.0.0"],
+  ])("shows .status and .side exactly as 1.0.2 does, %s", async (_, version) => {
     // [state, .status, .side], as Chess 1.0.2 wrote them.
     const table: [string, string, string][] = [];
-    const [a, b] = chatPair();
+    const [a, b] = chatPair(version);
     const ana = await open(a);
     await ana.prefs.set({ pieces: set });
     const anaRoot = mount(ana);
@@ -43,6 +46,7 @@ describe.each(PIECE_SETS)("the end-to-end contract with the %s pieces", (set) =>
     const bob = await open(b);
     await bob.prefs.set({ pieces: set });
     await settle(ana, bob);
+    if (version !== "1.0.2") await agree(ana, bob);
     const white = ana.game.view().me === "w" ? ana : bob;
     const black = white === ana ? bob : ana;
     const whiteRoot = white === ana ? anaRoot : mount(bob);
@@ -52,7 +56,11 @@ describe.each(PIECE_SETS)("the end-to-end contract with the %s pieces", (set) =>
     await play({ white, black }, "e2e4", "e7e5", "f1c4", "b8c6", "d1h5", "g8f6");
     black.broker.shutdown();
     await settle(white);
+    // White may still move: .status keeps 1.0.2's words, and the hint is a line of its own.
+    expect(white.game.view().canMove).toBe(true);
     table.push(["contact away", text(whiteRoot, ".status")!, text(whiteRoot, ".side")!]);
+    expect(text(whiteRoot, ".standing-text")).toBe("You can still make your move. It goes when they are back.");
+    expect(whiteRoot.querySelector<HTMLElement>(".standing")!.hidden).toBe(false);
     // The contact opens Chess again: a new page on the same storage.
     blackRoot.remove();
     const back = await open(black.broker);

@@ -244,7 +244,7 @@ const capital = (text: string) => (text ? text[0].toLocaleUpperCase() + text.sli
 export function overText(view: View, t: Strings): { head: string; reason: string } | null {
   if (!view.end) return null;
   const { result, why } = view.end;
-  const head = result === "1/2-1/2" ? t.drawn : view.me ? ((result === "1-0") === (view.me === "w") ? t.won : t.lost) : result === "1-0" ? t.whiteWins : t.blackWins;
+  const head = result === "*" ? t.noResult : result === "1/2-1/2" ? t.drawn : view.me ? ((result === "1-0") === (view.me === "w") ? t.won : t.lost) : result === "1-0" ? t.whiteWins : t.blackWins;
   return { head, reason: capital(t[`why_${why}`]) };
 }
 
