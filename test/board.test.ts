@@ -127,6 +127,9 @@ describe("input", () => {
     pointer(sq(root, "e3"), "pointermove", 100, 280);
     expect(root.querySelector(".ghost")).not.toBeNull();
     expect(sq(root, "e2").classList.contains("dragging")).toBe(true);
+    // A touch's implicit capture on its square moves to the board: the square losing it does not end the drag.
+    pointer(sq(root, "e2"), "lostpointercapture", 100, 280);
+    expect(root.querySelector(".ghost")).not.toBeNull();
     pointer(sq(root, "e4"), "pointermove", 100, 220);
     expect(sq(root, "e4").classList.contains("hover")).toBe(true);
     pointer(sq(root, "e4"), "pointerup", 100, 220);
@@ -237,6 +240,20 @@ describe("promotion", () => {
     expect(root.querySelector(".promo")).toBeNull();
     expect(white.broker.sent.length).toBe(before);
     expect(sq(root, "e7").textContent).toMatch(/♟/);
+  });
+
+  it("a press outside the picker cancels it", async () => {
+    const { white, black } = await startChat();
+    await play({ white, black }, ...TO_PROMOTION);
+    const root = mount(white);
+    const before = white.broker.sent.length;
+    sq(root, "e7").click();
+    sq(root, "e8").click();
+    pointer(root.querySelector(".promo-shade")!, "pointerdown");
+    await settle(white, black);
+    expect(root.querySelector(".promo")).toBeNull();
+    expect(white.broker.sent.length).toBe(before);
+    expect(document.activeElement).toBe(sq(root, "e7"));
   });
 
   it("with auto-queen on, sends e7e8q and shows no picker", async () => {

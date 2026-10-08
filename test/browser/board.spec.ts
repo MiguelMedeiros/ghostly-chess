@@ -40,11 +40,13 @@ test.describe("drag and drop", () => {
   });
 
   test("a touch drag plays a move and does not scroll the page", async ({ browser, browserName }) => {
-    // A phone-sized page that is taller than its window, so a finger that panned would scroll it.
-    const { white, sides } = await chatPair(browser, "top", { viewport: { width: 360, height: 520 }, hasTouch: true, isMobile: browserName === "chromium" });
+    // A short phone window (a keyboard up, or a landscape phone), with a page taller than it, so a finger that panned would scroll it.
+    const { white, sides } = await chatPair(browser, "top", { viewport: { width: 360, height: 360 }, hasTouch: true, isMobile: browserName === "chromium" });
     await expect(white.frame.locator(".status")).toHaveText(/^Your move/);
     const from = await squareCenter(white, "d2");
     const to = await squareCenter(white, "d4");
+    // The page can scroll (it is taller than its window), so a finger that panned would move it.
+    expect(await white.page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)).toBe(true);
     await white.page.evaluate(() => window.scrollTo(0, 0));
     if (browserName === "chromium") {
       // A real touch through the DevTools protocol: the browser decides between panning and pointer events itself.

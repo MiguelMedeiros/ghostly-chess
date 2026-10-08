@@ -71,6 +71,8 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
 .panel { display: flex; flex-direction: column; gap: 6px; width: var(--side); min-width: 0; }
 .app[data-layout="wide"] .panel { width: 240px; max-height: calc(var(--side) + 64px); }
+/* Below the board, the panel's width does not follow the board's, so its height (which sizes the board) is stable. */
+.app[data-layout="narrow"] .panel { width: 100%; max-width: 640px; }
 .status { margin: 0; font-weight: 600; min-height: 1.35em; }
 .side { margin: 0; color: var(--muted); font-size: 13px; min-height: 1.35em; }
 .app[data-layout="narrow"] .status,

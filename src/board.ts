@@ -297,7 +297,11 @@ export class Board {
     on(this.grid, "pointermove", (e) => this.pointerMove(e));
     on(this.grid, "pointerup", (e) => this.pointerUp(e));
     on(this.grid, "pointercancel", (e) => this.pointerCancel(e));
-    on(this.grid, "lostpointercapture", (e) => this.pointerCancel(e));
+    // Only the board's own capture: a touch is captured by its square at first (implicit capture), and moving that
+    // capture to the board makes the square lose it, which is not the end of the drag.
+    on(this.grid, "lostpointercapture", (e) => {
+      if (e.target === this.grid) this.pointerCancel(e);
+    });
     on(this.grid, "click", (e) => {
       if (this.pointerHandled) return;
       const square = this.squareOf(e.target);
