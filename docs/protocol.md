@@ -181,40 +181,52 @@ the mover's time before its ply n, I the increment, both in ms. The code is `src
   close: its clock runs while its Chess is closed on its turn. Its `move` carries `t`, its own time after the move.
 - **C3. Grace.** A round trip runs from this side's send of a frame carrying its ply k to the first `ack {n: k+1}`.
   G = 2 x the median of the last 5, within [300 ms, Gmax], Gmax = 1 s when base < 180 s and 2 s otherwise, and Gmax
-  before any sample. Delaying acks only inflates G up to Gmax.
+  before any sample. G bounds this side's own checks and claims; it never decides whether this side accepts a claim
+  (C7), since a contact that delays its acks can raise it up to Gmax.
 - **C4. Observer bound.** `ts` is when this side first sent a frame carrying its ply k (a `move`, or the `sync` when
   the move was made while the contact was away). It moves to a later send only when the contact's own `sync` showed it
   lacked that ply; a resync after a bad frame never moves it. The side to move sends `ack {g, n}` ("I hold n plies")
-  right after applying a ply (before saving it) and every 2 s on its own turn while the contact is open: each one, and
-  the `move` frame itself (frames are never queued), proves the mover had not moved yet. E = arrival of the latest
-  proof - ts. E never starts at an ack. A ply adopted from a `sync` is bounded only by the latest ack before it.
+  right after applying a ply (before saving it) and, from ply 2, every 2 s on its own turn while the contact is open:
+  each one, and the `move` frame itself (frames are never queued), proves the mover had not moved yet. E = arrival of
+  the latest proof - ts. E never starts at an ack. A ply adopted from a `sync` is bounded only by the latest ack before
+  it.
 - **C5. Checks on a reported t** (`move.t`, or `sync.c[mover]` for a ply caught up from a sync): t <= P + I, else it
   is clamped to P + I; and spent = P + I - t >= E - G, else this side keeps P + I - (E - G). A clamp shows "Your
-  contact's clock looks off" once per game. A move is never refused for timing. Each side keeps its own measure of its
-  own clock, and a later `sync.c` never raises this side's view of the contact's; the contact's later reports are read
-  less the clamp (`ko` in the record), so the two move lists differ by exactly the clamp, at the clamped ply only.
+  contact's clock looks off" once per game (also across a reload). A move is never refused for timing. Each side keeps
+  its own measure of its own clock, and a later `sync.c` never raises this side's view of the contact's; the
+  contact's later reports are read less the clamp (`ko` in the record), so the two move lists differ by exactly the
+  clamp, at the clamped ply only.
 - **C6. Self-flag.** When its own time reaches 0 on its turn, a side locks its board and sends `flag {g, n, by: self}`.
   The result is a loss, or a draw when the opponent has only K, K+B or K+N (chess.com's rule; FIDE would also ask
   whether any helpmate exists). A side that comes back past its time flags at once; its `sync` carries the end.
 - **C7. Claim.** The observer sends `flag {g, n, by: mover}` only with a proof whose E > P + G, or when its clamped
   view of the mover is at or below 0; wall time alone never makes a claim. The mover answers from its own clock for
-  ply n: now when it holds n plies, at its move when it already made ply n. With less than G left it accepts with
-  `flag {by: self, n}`; otherwise it sends `dispute {g, n}` and a `sync`. Either way the game ends at ply n on both
-  sides (on time, or "clocks disagree" with no result): a move that crossed the claim is dropped by its mover and held
-  unapplied by the claimer, then discarded. A claim not yet answered goes again when the mover opens Chess.
+  ply n: now when it holds n plies, at its move when it already made ply n. It accepts with `flag {by: self, n}` only
+  with less than 300 ms left (G's floor, which the contact cannot raise), and a claim about a ply it already made only
+  when the claim arrives within Gmax of its own send of that ply, as one that crossed the move does; a later one is
+  stale. Otherwise it sends `dispute {g, n}` and a `sync`. Either way the game ends at ply n on both sides (on time,
+  or "clocks disagree" with no result): a move that crossed the claim is dropped by its mover and held unapplied by
+  the claimer, then discarded, also when that move ended the game on the board. While its claim is unanswered the
+  claimer neither resigns nor answers a draw. A claim not yet answered goes again when the mover opens Chess, when
+  the mover acks without answering it (every 10 s at most), and with the silence resync of C8.
 - **C8. Away.** A side may move while the contact's Chess is closed; the contact's turn starts when it applies that
-  ply. If the side to move is away, or silent (no frame for 10 s: "Your contact's Chess isn't answering"), there is
-  no proof and so no claim: this side shows that side's clock running as an estimate, P - (now - ts), and past P + G
-  keeps a pending claim `pc`: "Their time is running out. It ends when their Chess is back." It goes when a proof
-  holds.
+  ply. If the side to move is away, or silent (from ply 2, no frame about this game that passed its checks for 10 s:
+  "Your contact's Chess isn't answering"), there is no proof and so no claim: this side shows that side's clock
+  running as an estimate, P - (now - ts), and past P + G keeps a pending claim `pc`: "Their time is running out. It
+  ends when their Chess is back." It goes when a proof holds; it is dropped when the contact acks in time, or its sync
+  shows it never had our ply (its turn then starts afresh). While the contact is silent with both open, this side
+  sends its `sync` and any unanswered claim again at once and every 10 s, and a move, flag, dispute or sync refused
+  with the contact open goes again on the next tick, so a lost frame never waits for a reopen.
 - **C9. Catch-up.** A `sync` carries `c = [white ms, black ms]` after the last ply: after a missed ply, c[mover] is
   that move's t, so both lists show the same times. With `k`, `tw` and `ts` both sides restart their timers, and the
   screens agree to within one-way latency unless C5 clamped.
 
 Trust: these are honest-peer clocks with bounds. Unseen, a modified client can shave up to G per move, and can stop
 its clock while it looks offline (no acks, or a peer that keeps saying it never got the move). Beyond that the other
-side sees the warning or makes a claim, and refusing a valid claim turns a loss on time into no result, never a win.
-No peer-to-peer design does better without a trusted clock.
+side sees the warning or makes a claim. A false claim wins on time only against a mover with less than 300 ms left:
+on its turn, or at a move it made at most Gmax before the claim arrived. Refusing a valid claim turns a loss on time
+into no result, never a win, and so does a false claim the mover disputes: either side can end a game with no result
+this way. No peer-to-peer design does better without a trusted clock.
 
 ## Storage
 

@@ -15,6 +15,7 @@ vi.setConfig({ testTimeout: 60_000 });
 const end = (side: Side) => side.game.view().end;
 const clocks = (side: Side) => side.game.clocks()!;
 const flags = (side: Side) => side.broker.kinds("flag");
+const gameId = (side: Side) => (record(side) as unknown as { g: string }).g;
 
 describe("a 1|0 game", () => {
   it("ends on time when white lets its time run out: white flags itself, and both show the same result", async () => {
@@ -152,6 +153,55 @@ describe("the observer reloads", () => {
   });
 });
 
+describe("the record across a reload", () => {
+  it("shows 'clock looks off' once per game, also after a reload", async () => {
+    const { link, white, black } = await timedGame([180, 0]);
+    await play(link, white, "e2e4");
+    await play(link, black, "e7e5");
+    white.broker.rewrite = (f) => (f.k === "move" && typeof f.t === "number" ? { ...f, t: 180_000 } : f);
+    await link.advance(10_000);
+    await play(link, white, "g1f3");
+    await link.advance(1000);
+    await play(link, black, "b8c6");
+    await link.advance(10_000);
+    await play(link, white, "f1b5");
+    expect(black.notices.filter((n) => n === "clock-off")).toHaveLength(1);
+    await link.close(black);
+    const again = await link.open(black.broker);
+    await play(link, again, "a7a6");
+    await link.advance(10_000);
+    await play(link, white, "b5a4");
+    expect(again.notices).not.toContain("clock-off");
+  });
+
+  it("drops the time of a ply it drops after the contact's resignation: k stays one entry per ply, also after a reload", async () => {
+    const { link, white, black } = await timedGame([300, 0]);
+    await play(link, white, "e2e4");
+    await play(link, black, "e7e5");
+    await link.advance(5000);
+    await play(link, white, "g1f3");
+    await link.advance(7000);
+    const [bb, wb] = [black.broker, white.broker];
+    await link.close(black);
+    await white.game.resign();
+    await link.close(white);
+    const b2 = await link.open(bb);
+    await link.advance(4000);
+    await play(link, b2, "b8c6"); // made while white is away; white resigned before it
+    await link.open(wb);
+    await link.advance(2000);
+    expect(end(b2)).toEqual({ result: "0-1", why: "resign" });
+    expect(record(b2).m).toHaveLength(3);
+    expect(record(b2).k).toHaveLength(3);
+    const spent = b2.game.spent();
+    await link.close(b2);
+    const b3 = await link.open(bb);
+    await link.advance(100);
+    expect(b3.game.spent()).toEqual(spent);
+    expect(spent[2]).toBeGreaterThan(4000);
+  });
+});
+
 describe("a peer that holds its acks", () => {
   it("is clamped when it holds them until just before moving and reports t = P + I: E starts at this side's send", async () => {
     const { link, white, black } = await timedGame([60, 0]);
@@ -183,9 +233,11 @@ describe("a peer that holds its acks", () => {
     expect(ts).toBeDefined();
     await link.advance(9000);
     expect(black.game.view().peerSilent).toBeUndefined();
-    // Meanwhile a bad frame every second does not count as an answer, and never moves ts.
+    // Meanwhile a bad frame every second, or a well-formed one about this game at the wrong ply, does not count as an
+    // answer, and never moves ts.
+    const g = gameId(black);
     for (let i = 0; i < 6; i++) {
-      black.broker.inject({ p: "chess", v: 2, k: "move", g: "zz" });
+      black.broker.inject(i % 3 === 0 ? { p: "chess", v: 2, k: "move", g: "zz" } : i % 3 === 1 ? { p: "chess", v: 2, k: "ack", g, n: 999 } : { p: "chess", v: 2, k: "move", g, n: 7, m: "a2a3" });
       await link.advance(1000);
     }
     expect(black.game.view().peerSilent).toBe(true);
@@ -209,8 +261,39 @@ describe("a peer that holds its acks", () => {
   });
 });
 
+describe("silence", () => {
+  it("never says 'isn't answering' on the untimed plies 0 and 1, however long a first move takes", async () => {
+    const { link, white, black } = await timedGame([180, 2]);
+    await link.advance(11_000);
+    expect(black.game.view().peerSilent).toBeUndefined();
+    await play(link, white, "e2e4");
+    await link.advance(11_000);
+    expect(white.game.view().peerSilent).toBeUndefined();
+    await play(link, black, "e7e5");
+    expect(end(white)).toBeUndefined();
+  });
+
+  it("drops a pending claim when the contact comes back without our ply: its turn starts afresh", async () => {
+    const { link, white, black } = await timedGame([60, 0]);
+    await play(link, white, "e2e4");
+    black.broker.latency = 1000;
+    const wb = white.broker;
+    await play(link, black, "e7e5"); // in flight
+    await link.close(white); // lost
+    await link.advance(65_000);
+    expect(black.game.view().pendingClaim).toBe(true);
+    const back = await link.open(wb);
+    await link.advance(3000);
+    expect(record(back).m).toHaveLength(2);
+    expect(record(black).pc).toBeUndefined();
+    expect(black.game.view().pendingClaim).toBeUndefined();
+    expect(end(black)).toBeUndefined();
+    expect(clocks(black).w).toBeGreaterThan(50_000);
+  });
+});
+
 describe("claims", () => {
-  it("ends 'clocks disagree' on both sides when the claimed side's clock shows at least G left, with PGN '*'", async () => {
+  it("ends 'clocks disagree' on both sides when the claimed side's clock shows 300 ms or more left, with PGN '*'", async () => {
     const { link, white, black } = await timedGame([60, 0]);
     await play(link, white, "e2e4");
     await play(link, black, "e7e5");
@@ -229,17 +312,18 @@ describe("claims", () => {
 
   it("holds a move that crosses a claim, and the mover's answer decides: accepted, the game ends on time at n and the move goes", async () => {
     const { link, white, black } = await timedGame([60, 0]);
-    // Black's frames take 3 s to reach white; white's are quick. White's turn starts 3 s after black's send.
-    black.broker.latency = 3000;
+    black.broker.latency = 100;
     await play(link, white, "e2e4");
     await play(link, black, "e7e5");
-    await link.advance(3000);
-    // White moves with half a second left on its own clock: less than G (1 s), so it accepts the claim.
-    await link.advance(59_500 - 100);
-    expect(flags(black)).toEqual([expect.objectContaining({ n: 2, by: "w" })]);
+    // Black's clock runs 1% fast: white's move, made with 200 ms left by white's own clock, reaches black past P + G.
+    black.rate = 1.01;
+    await link.advance(60_000 - 200 - (60_000 - clocks(white).w));
+    expect(clocks(white).w).toBeLessThan(300);
     await play(link, white, "g1f3");
+    expect(flags(black)).toEqual([expect.objectContaining({ n: 2, by: "w" })]);
     expect(record(black).m).toHaveLength(2); // held, not applied
-    await link.advance(4000);
+    await link.advance(1000);
+    // The claim came within Gmax of white's send, and white had less than 300 ms left at its move: accepted.
     for (const side of [white, black]) {
       expect(end(side), side.name).toEqual({ result: "0-1", why: "time" });
       expect(record(side).m, side.name).toEqual(["e2e4", "e7e5"]);
@@ -249,22 +333,133 @@ describe("claims", () => {
 
   it("holds a move that crosses a claim: refused, both end 'clocks disagree' at n, and the move goes on both", async () => {
     const { link, white, black } = await timedGame([60, 0]);
-    black.broker.latency = 3000;
+    black.broker.latency = 100;
     await play(link, white, "e2e4");
     await play(link, black, "e7e5");
-    await link.advance(3000);
-    // White's ack at 58 s of its turn reaches black 61 s after black's send: past P + G, a claim. White moves 1.3 s
-    // before its time is up, by its own clock: at least G (1 s), so it disputes the claim that crossed its move.
-    await link.advance(58_000 - 100);
-    await link.advance(800);
-    expect(white.game.clocks()!.w).toBeGreaterThan(1000);
-    expect(flags(black)).toEqual([expect.objectContaining({ n: 2, by: "w" })]);
+    // Black's clock runs 3% fast. White moves 1.3 s before its time is up, by its own clock: 300 ms or more left, so
+    // it disputes the claim that crossed its move, though the claim came at once.
+    black.rate = 1.03;
+    await link.advance(60_000 - 1300 - (60_000 - clocks(white).w));
+    expect(clocks(white).w).toBeGreaterThanOrEqual(1200);
     await play(link, white, "g1f3");
-    await link.advance(4000);
+    expect(flags(black)).toEqual([expect.objectContaining({ n: 2, by: "w" })]);
+    await link.advance(1000);
     expect(white.broker.kinds("dispute")).toHaveLength(1);
     for (const side of [white, black]) {
       expect(end(side), side.name).toEqual({ result: "*", why: "disputed" });
       expect(record(side).m, side.name).toEqual(["e2e4", "e7e5"]);
+    }
+  });
+
+  it("never accepts a claim that comes long after a move made in time (a modified client), however little time was left", async () => {
+    const { link, white, black } = await timedGame([60, 0]);
+    await play(link, white, "e2e4");
+    await play(link, black, "e7e5");
+    await link.advance(60_000 - 210 - (60_000 - clocks(white).w));
+    expect(clocks(white).w).toBeLessThan(300);
+    await play(link, white, "g1f3");
+    expect(record(black).m).toHaveLength(3);
+    expect(end(black)).toBeUndefined();
+    // Black's modified client claims white's ply 2 five seconds later: stale, so disputed, never a loss on time.
+    await link.advance(5000);
+    white.broker.inject({ p: "chess", v: 2, k: "flag", g: gameId(white), n: 2, by: "w" });
+    await link.advance(100);
+    expect(end(white)).not.toMatchObject({ why: "time" });
+    expect(flags(white)).toEqual([]);
+  });
+
+  it("does not let a contact that delays its acks raise the accept threshold: 800 ms left is never a loss", async () => {
+    const { link, white, black } = await timedGame([60, 0]);
+    black.broker.latency = 600; // black's modified client: every frame, and so every ack, ~600 ms late
+    await play(link, white, "e2e4");
+    await link.advance(1000);
+    await play(link, black, "e7e5");
+    await link.advance(600);
+    await link.advance(60_000 - 800 - (60_000 - clocks(white).w));
+    expect(clocks(white).w).toBeGreaterThanOrEqual(700);
+    // A claim on white's own turn with 800 ms left: G would be 1 s, the floor is 300 ms. Disputed.
+    white.broker.inject({ p: "chess", v: 2, k: "flag", g: gameId(white), n: 2, by: "w" });
+    await link.advance(100);
+    expect(end(white)).toEqual({ result: "*", why: "disputed" });
+    expect(flags(white)).toEqual([]);
+  });
+
+  it("ends the same on both sides when a mating move crosses a claim, live and after a reconnect", async () => {
+    for (const reconnect of [false, true]) {
+      const { link, white, black } = await timedGame([60, 0]);
+      await play(link, white, "f2f3");
+      await play(link, black, "e7e5");
+      await play(link, white, "g2g4");
+      if (reconnect) white.broker.drop = (f) => f.k === "flag"; // the claim is lost the first time
+      // White's clock runs fast: it claims black's ply 3 while black's mate is on its way.
+      white.rate = 1.03;
+      white.broker.latency = 100;
+      await link.advance(60_000 - 1000 - (60_000 - clocks(black).b));
+      await play(link, black, "d8h4"); // mate
+      expect(flags(white).length, `reconnect ${reconnect}`).toBeGreaterThan(0);
+      await link.advance(1000);
+      if (reconnect) {
+        expect(end(white)).toBeUndefined();
+        white.broker.drop = null;
+        await link.reconnect();
+      }
+      await link.advance(3000);
+      expect(end(black), `reconnect ${reconnect}`).toBeDefined();
+      expect(end(white), `reconnect ${reconnect}`).toEqual(end(black));
+      expect(record(white).m).toEqual(record(black).m);
+    }
+  });
+
+  it("keeps the claimer from resigning or agreeing a draw while its claim waits for an answer", async () => {
+    const { link, white, black } = await timedGame([60, 0]);
+    await play(link, white, "e2e4");
+    await play(link, black, "e7e5");
+    await white.game.offerDraw();
+    black.broker.latency = 2000;
+    black.rate = 2;
+    await link.advance(31_000);
+    expect(record(black).fl).toBe(2);
+    expect(end(black)).toBeUndefined();
+    expect(black.game.view().claiming).toBe(true);
+    await black.game.resign();
+    await black.game.answerDraw(true);
+    await black.game.offerDraw();
+    expect(record(black).x).toBeUndefined();
+    await link.advance(5000);
+    expect(end(white)).toEqual({ result: "*", why: "disputed" });
+    expect(end(black)).toEqual(end(white));
+  });
+
+  it("recovers a lost claim and a refused move with both sides open, without a reopen", async () => {
+    // The claim: dropped once, sent again when the contact acks without answering it.
+    {
+      const { link, white, black } = await timedGame([180, 0]);
+      await play(link, white, "e2e4");
+      await play(link, black, "e7e5");
+      let dropped = 0;
+      black.broker.drop = (f) => f.k === "flag" && dropped++ === 0;
+      black.rate = 2;
+      await link.advance(95_000);
+      expect(dropped).toBe(1);
+      await link.advance(12_000);
+      expect(end(white)).toEqual({ result: "*", why: "disputed" });
+      expect(end(black)).toEqual(end(white));
+    }
+    // The move: refused by a held session that ends with no close or open; the silence brings it.
+    {
+      const { link, white, black } = await timedGame([180, 0]);
+      await play(link, white, "e2e4");
+      await play(link, black, "e7e5");
+      await link.advance(2000);
+      link.hold(true);
+      await play(link, white, "g1f3");
+      await link.advance(500);
+      link.hold(false);
+      await link.advance(11_000);
+      expect(record(black).m).toEqual(record(white).m);
+      expect(end(black)).toBeUndefined();
+      expect(black.game.view().canMove).toBe(true);
+      expect(white.game.view().peerSilent).toBeUndefined();
     }
   });
 });

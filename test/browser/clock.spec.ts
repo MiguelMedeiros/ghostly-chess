@@ -74,3 +74,49 @@ for (const size of [
     for (const side of [ana, bob]) await side.context.close();
   });
 }
+
+// The contact silent on its turn, at a phone's width with a few captures each way: the strip keeps the contact's name
+// and its captures whole, and the sentence goes on the standing line, in every language.
+for (const locale of ["en", "pt", "es", "fr", "it", "ja", "zh", "ar"]) {
+  test(`shows "isn't answering" without cutting the strip at 320x568 in ${locale}`, async ({ browser }) => {
+    const sides = new Map<string, Side>();
+    const relay = { latency: 0, drop: (_f: string, d: unknown) => (d as { k?: string }).k === "ack" };
+    const contextOptions = { viewport: { width: 320, height: 568 } };
+    const ana = await openSide(browser, { name: "ana", sides, contextOptions, version: "2.1.0", relay, locale });
+    const bob = await openSide(browser, { name: "bob", sides, contextOptions, version: "2.1.0", relay, locale });
+    for (const side of [ana, bob]) await side.page.clock.install();
+    await ana.frame.locator('.setup .preset[data-tc="300+0"]').click();
+    await ana.frame.locator(".setup .invite-btn").click();
+    await bob.frame.locator(".invitation .accept-invite").click();
+    for (const side of [ana, bob]) await side.frame.locator(".side").filter({ hasText: /\S/ }).waitFor();
+    const below = async (side: Side) => (await side.frame.locator('[data-square="e2"]').boundingBox())!.y > (await side.frame.locator('[data-square="e7"]').boundingBox())!.y;
+    const [white, black] = (await below(ana)) ? [ana, bob] : [bob, ana];
+    const plies: [Side, string, string][] = [
+      [white, "e2", "e4"], [black, "d7", "d5"], [white, "e4", "d5"], [black, "d8", "d5"], [white, "b1", "c3"], [black, "d5", "a2"],
+      [white, "a1", "a2"], [black, "c8", "g4"], [white, "f2", "f3"], [black, "g4", "f3"], [white, "g1", "f3"], [black, "e7", "e6"],
+    ];
+    for (const [side, from, to] of plies) {
+      await click(side, from, to);
+      for (const s of [black, white]) await s.page.clock.runFor(200);
+    }
+    // White thinks, its acks lost: after 10 s black's page says so.
+    for (let t = 0; t < 12_000; t += 500) for (const s of [white, black]) await s.page.clock.runFor(500);
+    const strip = black.frame.locator(".strip.silent");
+    await expect(strip).toBeVisible();
+    await expect(black.frame.locator(".standing-text")).not.toBeEmpty();
+    await expect(black.frame.locator(".standing")).toBeVisible();
+    // What each part holds, measured unrounded (scrollWidth rounds away a cut of a fraction of a pixel, which WebKit
+    // still shows as an ellipsis), against the room it has.
+    for (const part of [".name", ".taken"]) {
+      const box = await strip.locator(part).evaluate((el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return { content: range.getBoundingClientRect().width, room: el.getBoundingClientRect().width };
+      });
+      expect(box.content, `${part} in ${locale}`).toBeLessThanOrEqual(box.room + 0.01);
+    }
+    expect(await black.frame.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    if (process.env.SHOTS) await black.page.screenshot({ path: join(process.env.SHOTS, `silent-320-${locale}-${test.info().project.name}.png`) });
+    for (const side of [ana, bob]) await side.context.close();
+  });
+}

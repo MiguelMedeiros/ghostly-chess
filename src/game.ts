@@ -41,6 +41,8 @@ import {
   checkReported,
   clocksAfter,
   grace,
+  GRACE_MIN_MS,
+  graceMax,
   incrementAt,
   mayClaim,
   SILENT_MS,
@@ -185,6 +187,8 @@ export interface View {
   peerSilent?: boolean;
   /** The contact's time ran out while its Chess was away or silent: the claim goes when it is back (C8). */
   pendingClaim?: boolean;
+  /** Our claim on the contact's time waits for its answer: no resign, no draw meanwhile (C7). */
+  claiming?: boolean;
 }
 
 /** The clocks as the strips show them, in ms. The contact's running clock is an estimate (P - (now - ts)). */
@@ -374,6 +378,14 @@ export class ChessController {
   /** When a frame about this game last came from the contact, or it opened (mono): for "isn't answering". */
   private heard = 0;
   private wasSilent = false;
+  /** When this side last sent its state again for a silent contact (mono). */
+  private lastSilentResync = -Infinity;
+  /** When our claim last went (mono): it goes again while the contact acks without answering it. */
+  private lastFlagSent = -Infinity;
+  /** A move, flag, dispute or sync failed to go with the contact open: tick() sends our state again. */
+  private retry = false;
+  /** Sends from tick()'s resync: a refusal shows no notice (the first one did). */
+  private quiet = false;
   private lastAckSent = -Infinity;
   /** The game the "clock looks off" notice was shown for: once per game. */
   private clockNoticed: string | null = null;
@@ -529,6 +541,7 @@ export class ChessController {
     if (this.game?.tc && (phase === "playing" || phase === "over")) view.tc = this.game.tc;
     if (phase === "playing" && this.peerSilent()) view.peerSilent = true;
     if (phase === "playing" && this.game?.pc !== undefined && this.game.fl === undefined) view.pendingClaim = true;
+    if (phase === "playing" && this.claiming()) view.claiming = true;
     return view;
   }
 
@@ -659,7 +672,7 @@ export class ChessController {
   resign(): Promise<void> {
     return this.enqueue(async () => {
       const view = this.view();
-      if (view.phase !== "playing" || !this.game) return;
+      if (view.phase !== "playing" || !this.game || this.claiming()) return;
       this.game = { ...noOffer(this.game), x: { why: "resign", by: this.game.me } };
       await this.saveGame();
       this.changed();
@@ -670,7 +683,7 @@ export class ChessController {
   /** Offers a draw, or accepts the peer's standing offer. */
   offerDraw(): Promise<void> {
     return this.enqueue(async () => {
-      if (this.view().phase !== "playing" || !this.peerOpen || !this.game || this.game.d === "me") return;
+      if (this.view().phase !== "playing" || !this.peerOpen || !this.game || this.game.d === "me" || this.claiming()) return;
       if (this.game.d === "peer") return this.answerDrawNow(true);
       const n = this.game.m.length;
       this.game = { ...this.game, d: "me", dn: n };
@@ -732,8 +745,14 @@ export class ChessController {
    */
   tick(): Promise<void> {
     return this.enqueue(async () => {
+      if (!this.inChat || !this.game?.tc || this.flip || this.choosing) return;
+      // A move, claim, answer or sync refused with the contact open (a held session): our state goes again.
+      if (this.retry && this.peerOpen) {
+        this.retry = false;
+        if (!(await this.resync(true))) this.retry = true;
+      }
       const game = this.game;
-      if (!this.inChat || !game?.tc || this.flip || this.choosing || this.ended()) return;
+      if (!game?.tc || this.ended()) return;
       const n = game.m.length;
       if (this.chess.turn() === game.me) {
         if (this.ownOut()) return this.selfFlag();
@@ -745,6 +764,10 @@ export class ChessController {
         this.wasSilent = silent;
         this.changed();
       }
+      // Silent with both open: a frame may have been lost. Our sync (with our ply) and an unanswered claim go again at
+      // once and every SILENT_MS while it lasts, so neither side waits for a reopen (C8).
+      if (!silent) this.lastSilentResync = -Infinity;
+      else if (this.mono() - this.lastSilentResync >= SILENT_MS && (await this.resync(true))) this.lastSilentResync = this.mono();
       // The contact's time is up by this side's estimate, and no proof can come (C8): the claim waits for its return.
       if (timedPly(n) && game.fl === undefined && game.pc === undefined && this.tsMono !== undefined && (!this.peerOpen || silent)) {
         if (this.mono() - this.tsMono > timeBefore(game.tc, alignedK(game), n) + this.grace()) {
@@ -885,6 +908,7 @@ export class ChessController {
     this.peerOpen = peer.open;
     this.heard = this.mono();
     if (!peer.open) {
+      this.retry = false; // the contact's next open brings our state anyway
       this.invitation = null; // it comes again with the contact's next open
       this.negotiator.close();
       this.clearHelloTimers();
@@ -908,8 +932,6 @@ export class ChessController {
     if (!decision.handle) return;
     // A version 1 frame about a dv:2 game cannot be: the two sides disagree on the protocol.
     if (v === 1 && "g" in message && this.game?.dv === 2 && message.g === this.game.g) return this.outOfStep(message.g);
-    // A sign of life for "isn't answering": a frame that reads and names this game (a bad frame is none).
-    if ("g" in message && message.g === this.game?.g && ["move", "ack", "sync", "flag", "dispute"].includes(message.k)) this.heard = this.mono();
     switch (message.k) {
       case "hello":
         return;
@@ -1033,25 +1055,29 @@ export class ChessController {
   }
 
   private async onMove(g: string, n: number, uci: string, t: number | undefined): Promise<void> {
-    if (!this.game || this.game.g !== g || this.flip) return this.resync();
+    if (!this.game || this.game.g !== g || this.flip) return void (await this.resync());
     const game = this.game;
-    if (n < game.m.length && game.m[n] === uci) return; // a repeat
+    // A repeat of a ply we hold: an honest resend, and a sign of life.
+    if (n < game.m.length && game.m[n] === uci) return void (this.heard = this.mono());
     // Our claim stands at this ply: the move that crossed it waits, unapplied, for the claimed side's answer (C7).
     if (game.tc && game.fl === n && n === game.m.length && !game.x) {
+      this.heard = this.mono();
       this.pending = { n, m: uci };
       return;
     }
     const end = this.ended();
     if (end || n !== game.m.length || this.chess.turn() !== other(game.me)) {
       this.notice("invalid-move");
-      return this.resync();
+      return void (await this.resync());
     }
     try {
       playUci(this.chess, uci);
     } catch {
       this.notice("invalid-move");
-      return this.resync();
+      return void (await this.resync());
     }
+    // Signs of life for "isn't answering" are only frames that pass their checks: a stream of wrong ones hides nothing.
+    this.heard = this.mono();
     let next: SavedGame = { ...noOffer(game), m: [...game.m, uci] };
     if (game.tc) {
       // The move frame is itself a proof: it left within one-way latency of its arrival (C4).
@@ -1088,7 +1114,8 @@ export class ChessController {
     // Read less an earlier clamp: the contact's own clock stands that much above our view of it.
     const reported = t === undefined ? P + I : t - ko;
     const { view, clamped } = checkReported(reported, P, I, E, G);
-    if (clamped) this.clockOff(game.g);
+    // Once per game, also across a reload: a clamp before this one left ko above 0.
+    if (clamped && !ko) this.clockOff(game.g);
     if (mayClaim(E, P, G, view)) return null;
     k[n] = Math.max(0, view);
     const more = Math.min(2 ** 31 - 1, ko + Math.max(0, reported - k[n]));
@@ -1110,6 +1137,12 @@ export class ChessController {
     this.game = { ...without(game, "pc"), fl: n };
     await this.saveGame();
     this.changed();
+    await this.sendClaim(game, n);
+  }
+
+  /** Our claim on the contact's time at ply count n goes (again). */
+  private async sendClaim(game: SavedGame, n: number): Promise<void> {
+    this.lastFlagSent = this.mono();
     await this.send({ k: "flag", g: game.g, n, by: other(game.me) });
   }
 
@@ -1157,6 +1190,7 @@ export class ChessController {
       return this.outOfStep(g);
     }
     const game = this.game!;
+    this.heard = this.mono();
     // A takeback this side never asked for: the two histories differ.
     if ((sync.tb ?? 0) > (game.tb ?? 0)) return this.outOfStep(g);
     this.stepPeerGame = null;
@@ -1184,7 +1218,7 @@ export class ChessController {
         // Our claim stands at this ply: the move waits for the answer, and the claim goes again (C7).
         if (game.fl === n) {
           this.pending = { n, m: extra };
-          return void (await this.send({ k: "flag", g, n, by: other(game.me) }));
+          return this.sendClaim(game, n);
         }
         // Caught up from a sync (C9): its t is c[mover], bounded only by the latest ack before it (the move may have
         // been made while the link was down).
@@ -1210,6 +1244,8 @@ export class ChessController {
           if (chess) {
             this.chess = chess;
             next = { ...next, m: [...moves] };
+            // The dropped ply's time goes with it: k stays one entry per ply.
+            if (next.k) next = { ...next, k: next.k.slice(0, moves.length) };
             dropped = true;
           }
         }
@@ -1299,6 +1335,7 @@ export class ChessController {
     const game = this.game;
     if (!game?.tc || game.g !== g || n !== game.m.length || this.ended() || this.chess.turn() === game.me) return;
     const at = this.mono();
+    this.heard = at;
     if (this.tsMono !== undefined && this.tsLive && !this.sampled) {
       this.samples = addSample(this.samples, at - this.tsMono);
       this.sampled = true;
@@ -1308,24 +1345,39 @@ export class ChessController {
       this.wasSilent = false;
       this.changed();
     }
-    if (game.fl === n || this.tsMono === undefined || !timedPly(n)) return;
-    if (mayClaim(at - this.tsMono, timeBefore(game.tc, alignedK(game), n), this.grace())) await this.claim(n);
+    // Still acking with our claim at n unanswered: the claim was lost on the way. It goes again, every SILENT_MS at most.
+    if (game.fl === n) {
+      if (at - this.lastFlagSent >= SILENT_MS) await this.sendClaim(game, n);
+      return;
+    }
+    if (this.tsMono !== undefined && timedPly(n) && mayClaim(at - this.tsMono, timeBefore(game.tc, alignedK(game), n), this.grace())) return this.claim(n);
+    // The contact is back, in time by its proof: a pending claim of ours goes (C8).
+    if (game.pc !== undefined) {
+      this.game = without(game, "pc");
+      await this.saveGame();
+      this.changed();
+    }
   }
 
   /**
    * A flag (C6, C7). `by` the sender: its own time ran out at ply count n (a self-report, or its answer accepting our
    * claim). `by` this side: a claim on our time, answered from our own clock at ply n: now when we hold n plies, at
-   * our move when we already made ply n. With less than G left we accept it; otherwise we dispute it. Either way the
-   * game ends at ply n, so a move that crossed the claim is dropped on both sides, and both show the same end.
+   * our move when we already made ply n. We accept it only with less than GRACE_MIN_MS left (a floor the contact
+   * cannot raise, unlike G), and a claim about a ply we already made only when it comes within Gmax of our send of
+   * that ply, as a claim that crossed it does: a later one is stale, and disputed. Otherwise we dispute it. Either way
+   * the game ends at ply n, so a move that crossed the claim is dropped on both sides, and both show the same end, also
+   * when that move ended the game on the board.
    */
   private async onFlag(g: string, n: number, by: Colour): Promise<void> {
     const game = this.game;
-    if (!game || game.g !== g || this.ended()) return;
+    if (!game || game.g !== g) return;
     const sender = other(game.me);
-    // A claim on our ply n, which we made already (it crossed the claim), is answered; anything else not at n is stale.
-    const crossed = Boolean(game.tc) && by === game.me && n === game.m.length - 1 && this.chess.turn() === sender;
-    if (n !== game.m.length && !crossed) return;
+    // A claim on our ply n, which we made already (it crossed the claim), is answered, even when that ply ended the
+    // game on the board (a mate): no end off the board yet. Anything else not at n, or after an end, is stale.
+    const crossed = Boolean(game.tc) && by === game.me && !game.x && n === game.m.length - 1 && this.chess.turn() === sender;
+    if (!crossed && (this.ended() || n !== game.m.length)) return;
     if (!game.tc || !timedPly(n)) return this.notice("bad-message");
+    this.heard = this.mono();
     if (by === sender) {
       if (n !== game.m.length || this.chess.turn() !== sender) return;
       this.pending = null;
@@ -1335,10 +1387,13 @@ export class ChessController {
       return;
     }
     let left: number;
-    if (n === game.m.length && this.chess.turn() === game.me) left = this.ownLeft() ?? 0;
-    else if (n === game.m.length - 1 && this.chess.turn() === sender) left = alignedK(game)[n] - incrementAt(game.tc, n);
+    if (crossed) {
+      // Our time at our move, if the claim came while it could have crossed it; a stale one is never accepted.
+      const fresh = this.tsMono !== undefined && this.mono() - this.tsMono <= graceMax(game.tc);
+      left = fresh ? alignedK(game)[n] - incrementAt(game.tc, n) : Infinity;
+    } else if (this.chess.turn() === game.me) left = this.ownLeft() ?? 0;
     else return; // about another ply: stale
-    const accept = left < this.grace();
+    const accept = left < GRACE_MIN_MS;
     if (n < game.m.length) this.chess = replay(game.m.slice(0, n)) ?? this.chess;
     const base = without({ ...noOffer(game), m: game.m.slice(0, n), k: alignedK(game).slice(0, n), fl: n }, "tw", "ts", "pc");
     this.turnStart = undefined;
@@ -1354,6 +1409,7 @@ export class ChessController {
   private async onDispute(g: string, n: number): Promise<void> {
     if (!this.game || this.game.g !== g || n !== this.game.m.length || this.ended()) return;
     if (this.game.fl !== n) return this.notice("bad-message");
+    this.heard = this.mono();
     this.pending = null;
     this.game = { ...without(noOffer(this.game), "pc"), x: { why: "disputed" } };
     await this.saveGame();
@@ -1370,7 +1426,7 @@ export class ChessController {
   }
 
   private async answerDrawNow(accept: boolean): Promise<void> {
-    if (!this.game || this.game.d !== "peer" || this.view().phase !== "playing") return;
+    if (!this.game || this.game.d !== "peer" || this.view().phase !== "playing" || this.claiming()) return;
     const n = this.game.dn ?? this.game.m.length;
     this.game = accept ? { ...noOffer(this.game), x: { why: "agreed" } } : noOffer(this.game);
     await this.saveGame();
@@ -1379,6 +1435,15 @@ export class ChessController {
   }
 
   // ---------- the clocks ----------
+
+  /**
+   * Our claim on the contact's time waits for its answer (C7). Meanwhile this side neither resigns nor answers a draw:
+   * the contact would end the game by the claim and ignore it, and the two sides would show different results.
+   */
+  private claiming(): boolean {
+    const game = this.game;
+    return Boolean(game?.tc && game.fl !== undefined && game.fl === game.m.length && !game.x);
+  }
 
   /** This side's time left now, on its own turn in a timed game; undefined otherwise. Before ply 2 it does not run. */
   private ownLeft(): number | undefined {
@@ -1425,8 +1490,10 @@ export class ChessController {
     this.sampled = false;
     this.lastAck = null;
     this.heard = this.tsMono;
-    this.game = { ...game, ts: this.now() };
+    // Sent again: the contact never had our ply, so its turn starts afresh, and a pending claim of ours goes.
+    this.game = { ...(again ? without(game, "pc") : game), ts: this.now() };
     await this.saveGame();
+    if (again && game.pc !== undefined) this.changed();
   }
 
   /** The grace G of this game (C3). */
@@ -1434,10 +1501,12 @@ export class ChessController {
     return grace(this.samples, this.game?.tc ?? [180, 0]);
   }
 
-  /** The contact, on its turn in a timed game and open, has sent nothing about this game for 10 s. */
+  /** The contact, on its timed turn (ply 2 on) and open, has sent nothing about this game that passed its checks for 10 s. */
   private peerSilent(): boolean {
     const game = this.game;
     if (!game?.tc || !this.peerOpen || this.ended() || this.chess.turn() === game.me || this.negotiator.mode !== "v2") return false;
+    // Plies 0 and 1 are untimed: no periodic acks, and a first move may take a while.
+    if (!timedPly(game.m.length)) return false;
     return this.mono() - this.heard > SILENT_MS;
   }
 
@@ -1475,7 +1544,7 @@ export class ChessController {
     const game = this.game;
     if (!game?.tc || this.ended()) return;
     if (this.chess.turn() === game.me) return this.sendAck();
-    if (game.fl !== undefined) await this.send({ k: "flag", g: game.g, n: game.fl, by: other(game.me) });
+    if (game.fl !== undefined) await this.sendClaim(game, game.fl);
   }
 
   // ---------- helpers ----------
@@ -1544,12 +1613,21 @@ export class ChessController {
     if (await this.send(message)) await this.plySent(again);
   }
 
-  /** Our state for a peer that sent something we could not place, at most once a second. */
-  private async resync(): Promise<void> {
-    if (this.now() - this.lastResync < RESYNC_GAP_MS) return;
+  /**
+   * Our state for a peer that sent something we could not place, at most once a second: false when held back.
+   * `quiet`: sent again by tick(), so a refusal shows no new notice.
+   */
+  private async resync(quiet = false): Promise<boolean> {
+    if (this.now() - this.lastResync < RESYNC_GAP_MS) return false;
     this.lastResync = this.now();
-    if (this.negotiator.mode === "v1") await this.openV1();
-    else await this.openV2();
+    this.quiet = quiet;
+    try {
+      if (this.negotiator.mode === "v1") await this.openV1();
+      else await this.openV2();
+    } finally {
+      this.quiet = false;
+    }
+    return true;
   }
 
   /**
@@ -1565,8 +1643,10 @@ export class ChessController {
       await this.api.chat.send(plain(encodeMessage(message, envelope)));
       return true;
     } catch {
-      // The peer closed or the chat dropped: the sync on its next open carries this. A lost ack says nothing.
-      if (message.k !== "ack") this.notice("send-failed");
+      // The peer closed or the chat dropped: the sync on its next open carries this. A lost ack says nothing. Refused
+      // with the contact still open (a held session), our state goes again from tick().
+      if (message.k !== "ack" && !this.quiet) this.notice("send-failed");
+      if (this.peerOpen && ["move", "flag", "dispute", "sync"].includes(message.k)) this.retry = true;
       return false;
     }
   }

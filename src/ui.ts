@@ -20,7 +20,8 @@
  * Keys: Left/Right step the review and Home/End go to its ends when focus is outside the board (the board keeps the
  * arrows for its squares); PageUp/PageDown step it from anywhere. A dialog keeps its keys.
  *
- * Below the notices, one standing line (hidden while a notice shows): that this side may still move while the contact's
+ * Below the notices, one standing line (hidden while a notice shows): in a timed game, a pending claim or that the
+ * contact's Chess isn't answering (its strip keeps its name, marked); that this side may still move while the contact's
  * Chess is closed, that an invitation waits for the contact, or, with Chess 1.0.2 (version 1), what the contact's
  * version lacks, with the details behind ⓘ. The new-game panel and the contact's invitation are cards on the board
  * (setup.ts), so the board keeps its size. While the contact's invitation shows, .status says it, and it is announced
@@ -85,6 +86,7 @@ const fill = (template: string, values: Record<string, string>) => template.repl
 /** The standing line's words for a view, if any: see the module comment. */
 export function standingText(view: View, t: Strings): { text: string; details: boolean } | null {
   if (view.pendingClaim) return { text: t.pendingClaim, details: false };
+  if (view.peerSilent) return { text: t.peerSilent, details: false };
   if (view.phase === "playing" && !view.peerOpen && view.canMove) return { text: t.canStillMove, details: false };
   if (view.phase === "invited" && !view.peerOpen) return { text: t.invitedAway, details: false };
   if (view.peerOpen && view.mode === "v1" && view.phase !== "alone" && view.phase !== "loading") {
@@ -252,9 +254,9 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const name = view.phase === "alone" ? (colour === "w" ? t.whiteName : t.blackName) : view.me ? (colour === view.me ? t.you : t.contact) : node === bottom ? t.you : t.contact;
     const dot = el("span", `dot ${view.me || view.phase === "alone" ? colour : "unknown"}`);
     dot.setAttribute("aria-hidden", "true");
-    // A timed game, the contact silent on its turn: the strip says so in place of its name (the words name it).
+    // A timed game, the contact silent on its turn: its clock turns muted, and the standing line says why.
     const silent = Boolean(view.peerSilent && view.me && colour !== view.me);
-    const label = el("span", silent ? "name silent" : "name", silent ? t.peerSilent : name);
+    const label = el("span", "name", name);
     const taken = record.taken(at)[colour];
     const material = record.material(at);
     const set = prefs.get().pieces;
@@ -262,6 +264,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     if (node.dataset.key === key) return;
     node.dataset.key = key;
     node.classList.toggle("to-move", view.turn === colour && !view.end && view.phase !== "toss");
+    node.classList.toggle("silent", silent);
     node.replaceChildren(dot, label, takenNode(colour, taken, material, set, t), clockOf.get(node)!);
   }
 
@@ -444,21 +447,24 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.newGame, () => void game.newGame()));
     if (view.phase === "playing") {
       const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw());
-      offer.disabled = view.drawOffer !== undefined || !view.peerOpen;
+      offer.disabled = view.drawOffer !== undefined || !view.peerOpen || Boolean(view.claiming);
       out.push(offer);
-      out.push(
-        button(resignArmed ? t.resignSure : t.resign, () => {
-          if (!resignArmed) {
-            resignArmed = true;
-            render();
-            actions.querySelector<HTMLButtonElement>(".danger")?.focus();
-            return;
-          }
-          resignArmed = false;
-          void game.resign();
-        }, "danger"),
-      );
+      const resign = button(resignArmed ? t.resignSure : t.resign, () => {
+        if (!resignArmed) {
+          resignArmed = true;
+          render();
+          actions.querySelector<HTMLButtonElement>(".danger")?.focus();
+          return;
+        }
+        resignArmed = false;
+        void game.resign();
+      }, "danger");
+      // Our claim on the contact's time waits for its answer: no resign and no draw until it comes.
+      resign.disabled = Boolean(view.claiming);
+      if (view.claiming) resignArmed = false;
+      out.push(resign);
     } else resignArmed = false;
+    for (const b of offerCard.querySelectorAll("button")) b.disabled = Boolean(view.claiming);
     if (view.phase === "over" || view.phase === "out-of-step") out.push(button(t.newGame, () => void game.newGame(), "primary"));
     if (view.end && view.phase !== "alone") out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));

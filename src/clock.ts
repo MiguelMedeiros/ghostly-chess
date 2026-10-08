@@ -71,7 +71,8 @@ export function spentOn(tc: TimeControl, k: readonly number[], i: number): numbe
 
 /**
  * The grace G (C3): twice the median of the last 5 round trips (a send of this side's ply to the first ack of it),
- * within [300 ms, Gmax]; Gmax before any sample. A peer that delays its acks only inflates G up to Gmax.
+ * within [300 ms, Gmax]; Gmax before any sample. A peer that delays its acks inflates G up to Gmax, so G bounds this
+ * side's checks and claims but never decides whether a claim on this side is accepted (GRACE_MIN_MS does).
  */
 export function grace(samples: readonly number[], tc: TimeControl): number {
   const max = graceMax(tc);

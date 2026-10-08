@@ -100,13 +100,36 @@ describe("the clocks on the page", () => {
     await link.advance(11_000);
     await drawn();
     const whiteStrip = clockOf(b.root, "w").parentElement!;
-    expect(whiteStrip.querySelector(".name.silent")!.textContent).toBe("Your contact's Chess isn't answering");
+    // The strip keeps the contact's name (marked); the sentence is on the standing line, where it has room.
+    expect(whiteStrip.querySelector(".name")!.textContent).toBe(en.contact);
+    expect(whiteStrip.classList.contains("silent")).toBe(true);
+    expect(b.root.querySelector(".standing-text")!.textContent).toBe("Your contact's Chess isn't answering");
     await link.close(white);
     await link.advance(52_000);
     await drawn();
     expect(b.root.querySelector(".standing-text")!.textContent).toBe("Their time is running out. It ends when their Chess is back.");
     expect(clockOf(b.root, "w").textContent).toBe("0:00.0");
     expect(b.root.querySelector<HTMLElement>(".over")!.hidden).toBe(true);
+  });
+
+  it("turns off Resign and the draw buttons while our claim waits for the contact's answer", async () => {
+    const { link, white, black } = await timedGame([60, 0]);
+    const b = await mount(black);
+    await play(link, white, "e2e4");
+    await play(link, black, "e7e5");
+    await white.game.offerDraw();
+    black.broker.latency = 2000;
+    black.rate = 2;
+    await link.advance(30_600);
+    await drawn();
+    expect(black.game.view().claiming).toBe(true);
+    expect(b.root.querySelector<HTMLButtonElement>("button.danger")!.disabled).toBe(true);
+    const card = [...b.root.querySelectorAll<HTMLButtonElement>(".offer-card button")];
+    expect(card.length).toBe(2);
+    expect(card.every((button) => button.disabled)).toBe(true);
+    await link.advance(5000);
+    await drawn();
+    expect(b.root.querySelector(".over-reason")!.textContent).toBe("Clocks disagree");
   });
 
   it("ends on time with the game-over card and the PGN's termination", async () => {
