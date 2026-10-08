@@ -163,6 +163,27 @@ describe("a takeback", () => {
     expect(saved(back).tb).toBe(1);
   });
 
+  it("answers the older tb also when the game ended since the accept: the asker takes the takeback, then the end", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3");
+    await white.game.takeback();
+    await settle(white, black);
+    white.game.stop();
+    await black.game.answerTakeback(true);
+    await black.game.resign();
+    await settle(black);
+    const w = saved(white);
+    const count = black.broker.sent.length;
+    await from(black, { k: "sync", g: w.g, s: [w.s[0], w.s[1]], m: w.m });
+    expect(black.game.view().phase).toBe("over");
+    expect((black.broker.sent.slice(count) as Record<string, unknown>[]).map((f) => f.k)).toEqual(["takeback", "sync"]);
+    const back = await open(white.broker);
+    await settle(back, black);
+    expect(saved(back).m).toEqual(["e2e4", "e7e5"]);
+    expect(back.game.view().end).toEqual({ result: "1-0", why: "resign" });
+  });
+
   it("is out of step on a sync with a higher tb and no matching ask", async () => {
     const sides = await startChat();
     const { white, black } = sides;
@@ -175,6 +196,39 @@ describe("a takeback", () => {
 });
 
 describe("a takeback in a timed game", () => {
+  const clamp = (side: Parameters<typeof record>[0]) => record(side) as { ko?: number; kj?: number };
+
+  it("keeps a clamp on a ply it does not take back, and drops it with the clamped ply (C5)", async () => {
+    for (const past of [false, true]) {
+      const { link, white, black } = await timedGame([180, 0]);
+      await playTimed(link, white, "e2e4");
+      await playTimed(link, black, "e7e5");
+      // White's client reports no time spent on ply 2: Black clamps it, and keeps the clamp as ko.
+      white.broker.rewrite = (f) => (f.k === "move" && typeof f.t === "number" ? { ...f, t: 180_000 } : f);
+      await link.advance(10_000);
+      await playTimed(link, white, "g1f3");
+      white.broker.rewrite = null;
+      expect(clamp(black).ko).toBeGreaterThan(9_000);
+      expect(clamp(black).kj).toBe(2);
+      const ko = clamp(black).ko;
+      await link.advance(1_000);
+      await playTimed(link, black, "b8c6");
+      if (!past) {
+        await link.advance(1_000);
+        await playTimed(link, white, "f1c4");
+      }
+      // Asked after White's own move (back to 4 plies, the clamp stays), or after Black's reply (back to 2, it goes).
+      await white.game.takeback();
+      await link.advance(100);
+      await black.game.answerTakeback(true);
+      await link.advance(100);
+      expect(record(black).m).toHaveLength(past ? 2 : 4);
+      expect(clamp(black).ko).toBe(past ? undefined : ko);
+      if (past) expect(clamp(black).kj).toBeUndefined();
+      else expect(clamp(black).kj).toBe(2);
+    }
+  });
+
   it("restores both clocks from k for that ply, and the side to move's timer starts at the accept", async () => {
     const { link, white, black } = await timedGame([180, 2]);
     await playTimed(link, white, "e2e4");

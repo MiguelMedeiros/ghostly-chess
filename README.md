@@ -48,6 +48,8 @@ versions, in the release's pull request or issue:
 - **Sounds:** after a tap inside the frame, moves (and, in a timed game, the low-time warning) are heard in the web runner (Chromium and Safari) and in Desktop's
   app window (WKWebView); nothing before it. On an iPhone's web app the ring/silent switch mutes Web Audio: a known
   limit, not worked around.
+- **Premoves on touch:** on the contact's turn a tap, tap (or a finger drag) queues a premove in blue, and a long
+  press on the board drops it (iOS Safari sends no `contextmenu`, so the long press is the board's own timer).
 - **Copy PGN:** in the web runner and in Desktop, Copy either copies or leaves the PGN selected with the hint; on an
   iPhone the PGN shows selected, ready to copy with a press and hold.
 

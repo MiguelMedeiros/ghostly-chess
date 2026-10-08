@@ -1340,7 +1340,7 @@ export class ChessController {
       // The asker missed our accept (it closed): its history still has the plies taken back. The accept goes again,
       // with our sync, and our ply's bound moves to this send (C4). Anything else is another history.
       const extra = moves.length - game.m.length;
-      if (game.x || extra < 1 || extra > 2 || !isPrefix(game.m, moves)) return this.outOfStep(g);
+      if (extra < 1 || extra > 2 || !isPrefix(game.m, moves)) return this.outOfStep(g);
       await this.send({ k: "takeback", g, n: game.m.length, o: "accept" });
       return this.sendSync(true);
     }
