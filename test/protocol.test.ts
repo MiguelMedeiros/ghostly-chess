@@ -171,6 +171,15 @@ describe("the message protocol", () => {
     expect(parseMessage({ p: "chess", v: 2, k: "hello", pv: 3, f: [], n: "\u200b" })).toEqual({ ok: true, v: 2, message: { k: "hello", pv: 3, f: [] } });
   });
 
+  it("keeps a hello's re: 1 (an answer), and refuses any other re", () => {
+    const answer: Message = { k: "hello", pv: 2, f: [], re: 1 };
+    expect(parseMessage(encodeMessage(answer))).toEqual({ ok: true, v: 2, message: answer });
+    expect(parseMessage({ p: "chess", v: 2, k: "hello", pv: 2, f: [] })).toEqual({ ok: true, v: 2, message: { k: "hello", pv: 2, f: [] } });
+    for (const re of [0, 2, "1", true, null]) {
+      expect(parseMessage({ p: "chess", v: 2, k: "hello", pv: 2, f: [], re }), JSON.stringify(re)).toEqual({ ok: false, reason: "malformed" });
+    }
+  });
+
   it("gives newer-version for a frame of version 3 or later, and ignores unknown extra fields", () => {
     expect(parseMessage({ p: "chess", v: 3, k: "hello", pv: 3, f: [] })).toEqual({ ok: false, reason: "newer-version" });
     expect(parseMessage({ p: "chess", v: 9, k: "anything" })).toEqual({ ok: false, reason: "newer-version" });
