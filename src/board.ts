@@ -19,6 +19,9 @@ import { glyph, pieceSvg, type PieceSet } from "./pieces.ts";
 import type { Prefs, PrefsStore } from "./prefs.ts";
 import type { Strings } from "./strings.ts";
 
+/** What the board reads and calls: the controller itself, or the review cursor over it (review.ts). */
+export type BoardGame = Pick<ChessController, "view" | "board" | "targets" | "move">;
+
 const FILES = "abcdefgh";
 type Colour = "w" | "b";
 type Promotion = "q" | "r" | "b" | "n";
@@ -103,7 +106,7 @@ export class Board {
   private readonly offs: (() => void)[] = [];
 
   constructor(
-    private readonly game: ChessController,
+    private readonly game: BoardGame,
     private readonly t: Strings,
     private readonly store: PrefsStore,
   ) {

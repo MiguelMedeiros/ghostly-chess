@@ -45,8 +45,10 @@ describe("the Chess bundle", () => {
     expect(notice).toContain("1. Redistributions of source code must retain the above copyright notice");
     expect(notice).toContain("2. Redistributions in binary form must reproduce the above copyright notice");
     expect(notice).toContain("3. Neither the name of The author nor the names of its contributors may be used");
-    // A legal text kept in the repository beside vendored data (the CC0 deed of the openings) is not shipped.
-    expect(notice).not.toMatch(/CC0|Creative Commons|Statement of Purpose/);
+    // The opening names: a one-line credit. Their CC0 legal text, kept in the repository, is not shipped.
+    expect(notice).toContain("Chess opening names (CC0-1.0)");
+    expect(notice).toContain("lichess-org/chess-openings");
+    expect(notice).not.toMatch(/Statement of Purpose|NOT A LAW FIRM|Creative Commons Legal Code/i);
   });
 
   it("names no address and no way to reach the network", () => {
@@ -73,10 +75,11 @@ describe("the Chess bundle", () => {
     const notice = page.slice(page.indexOf("/*!"), page.indexOf("*/", page.indexOf("/*!")) + 2);
     expect(Buffer.byteLength(notice), "notice block").toBeLessThanOrEqual(8 * 1024);
     expect(Buffer.byteLength(readFileSync(join(root, "src/generated/pieces.ts"))), "pieces").toBeLessThanOrEqual(12 * 1024);
+    expect(Buffer.byteLength(readFileSync(join(root, "src/generated/openings.ts"))), "opening data").toBeLessThanOrEqual(48 * 1024);
     const strings = ["src/strings.ts", "src/languages.ts"].reduce((n, f) => n + Buffer.byteLength(readFileSync(join(root, f))), 0);
-    // Pinned near their size (about 27 KB and 122 KiB in 1.1.0): growing them is a choice made here, not by accident.
-    expect(strings, "string tables").toBeLessThanOrEqual(32 * 1024);
-    expect(Buffer.byteLength(page), "page").toBeLessThanOrEqual(136 * 1024);
+    // The plan's pins for 1.2 (the page was 122 KiB in 1.1.0): growing past them is a choice made here, not by accident.
+    expect(strings, "string tables").toBeLessThanOrEqual(56 * 1024);
+    expect(Buffer.byteLength(page), "page").toBeLessThanOrEqual(256 * 1024);
   });
 
   it("parses no markup at run time: the pieces are built with createElementNS", () => {

@@ -15,6 +15,7 @@
  * and New game starts a fresh toss that gives up both games.
  */
 import { Chess, type Move, type Square } from "chess.js";
+import { historyOf, plyOf, type GameHistory, type LastMove } from "./history.ts";
 import type { MiniAppApi, MiniAppJson, MiniAppPeerEvent } from "./vendor/miniApp.ts";
 import { encodeMessage, MAX_PLIES, parseMessage, UCI, type Colour, type DrawOption, type GameEnd, type Message } from "./protocol.ts";
 import { commitment, cryptoRandom, deal, newSalt, type Random } from "./toss.ts";
@@ -44,6 +45,8 @@ export interface SavedGame {
   x?: GameEnd;
   /** A draw offer that stands: made by this side ("me") or the peer. */
   d?: "me" | "peer";
+  /** The start date, "YYYY.MM.DD" in local time, set when the toss completes (a 1.0.2 record has none). */
+  sd?: string;
 }
 
 /** A toss in progress, as storage keeps it under "flip": the salt survives a reload, so the toss can finish. */
@@ -60,6 +63,17 @@ export interface SavedFlip {
 export interface SavedLocal {
   v: 1;
   m: string[];
+  /** The start date, "YYYY.MM.DD", set at the first move. */
+  sd?: string;
+}
+
+const DATE = /^\d{4}\.\d\d\.\d\d$/;
+
+/** A time as a PGN date, "YYYY.MM.DD", in local time. */
+export function dateStamp(ms: number): string {
+  const d = new Date(ms);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${String(d.getFullYear()).padStart(4, "0")}.${two(d.getMonth() + 1)}.${two(d.getDate())}`;
 }
 
 export type EndReason = "checkmate" | "stalemate" | "repetition" | "fifty" | "material" | "limit" | "resign" | "agreed";
@@ -97,19 +111,7 @@ export interface View {
   canMove: boolean;
 }
 
-/** The last ply, as the board and the announcements show it. */
-export interface LastMove {
-  from: Square;
-  to: Square;
-  san: string;
-  colour: Colour;
-  /** The piece that moved (a pawn when it promoted). */
-  piece: "k" | "q" | "r" | "b" | "n" | "p";
-  captured?: "q" | "r" | "b" | "n" | "p";
-  promotion?: "q" | "r" | "b" | "n";
-  /** "k" or "q" when the move castled on that side. */
-  castle?: "k" | "q";
-}
+export type { LastMove };
 
 export interface ControllerOptions {
   random?: Random;
@@ -164,11 +166,11 @@ function endingOf(chess: Chess, plies: number, x: GameEnd | undefined): Ending |
 }
 
 function lastMoveOf(move: Move): LastMove {
-  const out: LastMove = { from: move.from, to: move.to, san: move.san, colour: move.color, piece: move.piece };
-  if (move.captured) out.captured = move.captured as LastMove["captured"];
-  if (move.promotion) out.promotion = move.promotion as LastMove["promotion"];
-  if (move.isKingsideCastle()) out.castle = "k";
-  else if (move.isQueensideCastle()) out.castle = "q";
+  const { from, to, san, colour, piece, captured, promotion, castle } = plyOf(move);
+  const out: LastMove = { from, to, san, colour, piece };
+  if (captured) out.captured = captured;
+  if (promotion) out.promotion = promotion;
+  if (castle) out.castle = castle;
   return out;
 }
 
@@ -200,7 +202,17 @@ export class ChessController {
    * (the move counters make every ply's FEN new), so a move, a load or a new game all start afresh without being
    * cleared by hand. What else the view reads (the phase, the peer, the offer) is read fresh every time.
    */
-  private boardCache: { chess: Chess; fen: string; plies: number; last?: LastMove; ending?: Ending; inCheck: boolean; targets: Map<Square, { to: Square; promotion: boolean }[]> } | null = null;
+  private boardCache: {
+    chess: Chess;
+    fen: string;
+    plies: number;
+    moves: Move[];
+    record?: GameHistory;
+    last?: LastMove;
+    ending?: Ending;
+    inCheck: boolean;
+    targets: Map<Square, { to: Square; promotion: boolean }[]>;
+  } | null = null;
 
   constructor(api: MiniAppApi, options: ControllerOptions = {}) {
     this.api = api;
@@ -227,10 +239,13 @@ export class ChessController {
       if (!chess) this.game = null;
       this.chess = chess ?? new Chess();
     } else {
-      const moves = this.readMoves(await this.api.storage.get(KEY_LOCAL));
+      const stored = await this.api.storage.get(KEY_LOCAL);
+      const moves = this.readMoves(stored);
       const chess = replay(moves);
       this.chess = chess ?? new Chess();
       this.local = { v: 1, m: chess ? moves : [] };
+      const sd = (stored as Partial<SavedLocal> | undefined)?.sd;
+      if (chess && moves.length && typeof sd === "string" && DATE.test(sd)) this.local.sd = sd;
     }
     this.phaseLoaded = true;
     this.loaded();
@@ -268,7 +283,7 @@ export class ChessController {
     const history = chess.history({ verbose: true });
     const last = history[history.length - 1];
     const plies = history.length;
-    const fresh = { chess, fen, plies, last: last ? lastMoveOf(last) : undefined, ending: boardEnding(chess, plies), inCheck: chess.inCheck(), targets: new Map() };
+    const fresh = { chess, fen, plies, moves: history, last: last ? lastMoveOf(last) : undefined, ending: boardEnding(chess, plies), inCheck: chess.inCheck(), targets: new Map() };
     this.boardCache = fresh;
     return fresh;
   }
@@ -305,7 +320,20 @@ export class ChessController {
 
   /** Every ply so far, in SAN ("e4", "Nf3", "O-O"). */
   history(): string[] {
-    return this.chess.history();
+    return [...this.record().sans];
+  }
+
+  /** The game's moves, positions and captures (history.ts), made once per position. */
+  record(): GameHistory {
+    const position = this.position();
+    position.record ??= historyOf(position.moves);
+    return position.record;
+  }
+
+  /** The day the game started ("YYYY.MM.DD"), when known: a game from Chess 1.0.2 has none. */
+  startDate(): string | undefined {
+    const sd = this.inChat ? this.game?.sd : this.local?.sd;
+    return sd && DATE.test(sd) ? sd : undefined;
   }
 
   /** The board as chess.js gives it, rank 8 first. */
@@ -339,7 +367,7 @@ export class ChessController {
         return false;
       }
       if (!this.inChat) {
-        this.local = { v: 1, m: [...(this.local?.m ?? []), uci] };
+        this.local = { v: 1, m: [...(this.local?.m ?? []), uci], sd: this.local?.m.length ? this.local.sd : dateStamp(this.now()) };
         await this.api.storage.set(KEY_LOCAL, plain(this.local));
         this.changed();
         return true;
@@ -467,7 +495,7 @@ export class ChessController {
     if (!this.flip || answering !== commitment(this.flip.salt) || !this.flip.peer) return;
     if (commitment(peerSalt) !== this.flip.peer) return this.notice("bad-reveal");
     const { g, me } = deal(this.flip.salt, peerSalt);
-    await this.begin({ v: 1, g, me, s: [this.flip.salt, peerSalt], m: [] });
+    await this.begin({ v: 1, g, me, s: [this.flip.salt, peerSalt], m: [], sd: dateStamp(this.now()) });
   }
 
   private async onMove(g: string, n: number, uci: string): Promise<void> {
@@ -503,7 +531,7 @@ export class ChessController {
     if (!same) {
       // Adopt only a game this side's own salt made: the toss it had going, so the colours are the ones it agreed to.
       if (this.flip && this.flip.salt === mySalt && this.flip.peer === commitment(theirSalt)) {
-        await this.begin({ v: 1, g, me: dealt.me, s: [mySalt, theirSalt], m: [] });
+        await this.begin({ v: 1, g, me: dealt.me, s: [mySalt, theirSalt], m: [], sd: dateStamp(this.now()) });
         return this.onSync(g, salts, moves, x);
       }
       if (this.game && this.game.g === g) return this.notice("bad-message");
@@ -632,7 +660,9 @@ export class ChessController {
   private readGame(value: MiniAppJson | undefined): SavedGame | null {
     const v = value as Partial<SavedGame> | undefined;
     if (!v || v.v !== 1 || typeof v.g !== "string" || (v.me !== "w" && v.me !== "b") || !Array.isArray(v.s) || !Array.isArray(v.m)) return null;
-    return v as SavedGame;
+    const game = { ...v } as SavedGame;
+    if (typeof game.sd !== "string" || !DATE.test(game.sd)) delete game.sd;
+    return game;
   }
 
   private readFlip(value: MiniAppJson | undefined): SavedFlip | null {

@@ -62,7 +62,16 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .play { display: flex; flex-direction: column; gap: 4px; width: var(--side); }
 .strip { display: flex; align-items: center; gap: 8px; height: 28px; font-size: 14px; font-weight: 600; color: var(--muted); }
 .strip.to-move { color: var(--fg); }
-.strip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The pieces a side took, beside its name, and its lead in material: small, overlapping when of a kind. */
+.taken { display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 0; overflow: hidden; line-height: 1; }
+.cap { flex: none; display: inline-flex; width: 18px; height: 18px; }
+.cap.same { margin-inline-start: -10px; }
+.cap .piece { width: 100%; height: 100%; }
+.cap-glyph { font-size: 16px; line-height: 18px; font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", system-ui, sans-serif; }
+.cap-glyph.w { color: var(--white-piece); text-shadow: 0 0 1px #000, 0 0 1px #000; }
+.cap-glyph.b { color: var(--black-piece); }
+.lead { flex: none; margin-inline-start: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .dot { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--muted); }
 .dot.w { background: #fff; }
 .dot.b { background: #262626; }
@@ -73,34 +82,56 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .app[data-layout="wide"] .panel { width: 240px; max-height: calc(var(--side) + 64px); }
 /*
  * Below the board, the board is sized from the panel's reserved height (NARROW_PANEL in ui.ts), so each line keeps its
- * height whatever it holds: status 20, side 18, move row 30, controls 36, notices 18, 6 px between them.
+ * height whatever it holds: status 20, side 18, opening 16, move row 30, review bar 32, controls 36, notices 18, 6 px
+ * between them.
  */
 .app[data-layout="narrow"] .panel { width: 100%; max-width: 640px; }
 .app[data-layout="narrow"] .status { min-height: 20px; }
 .app[data-layout="narrow"] .side { min-height: 18px; }
+.app[data-layout="narrow"] .opening { height: 16px; }
 .app[data-layout="narrow"] .moves { min-height: 30px; }
+.app[data-layout="narrow"] .navrow { min-height: 32px; }
 .app[data-layout="narrow"] .notices { min-height: 18px; }
 .status { margin: 0; font-weight: 600; min-height: 1.35em; }
 .side { margin: 0; color: var(--muted); font-size: 13px; min-height: 1.35em; }
 .app[data-layout="narrow"] .status,
-.app[data-layout="narrow"] .side { text-align: center; }
+.app[data-layout="narrow"] .side,
+.app[data-layout="narrow"] .opening { text-align: center; }
+/* The opening: its ECO code and English name, on one line. */
+.opening { margin: 0; min-height: 16px; font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opening .eco { font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .moves {
+  position: relative; /* the moves' offsets are measured from the list, which scrolls them into view */
   margin: 0; padding: 4px 6px; list-style: none; font-size: 14px; font-variant-numeric: tabular-nums;
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
 }
 /* Before the first move: no box and no tab stop, whatever display a layout gives the list. */
 .moves[hidden], .offer-card[hidden] { display: none !important; }
-.moves:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
-.move { display: inline-flex; gap: 6px; }
-.move .no { color: var(--muted); }
-.move .san.current { font-weight: 700; }
+.move { display: inline-flex; align-items: center; gap: 2px; }
+.move .no { color: var(--muted); padding-inline-end: 2px; }
+.move .san {
+  font: inherit; padding: 1px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); cursor: pointer;
+  text-align: start; white-space: nowrap;
+}
+.move .san:hover { background: var(--btn); }
+.move .san.current { font-weight: 700; background: var(--btn); box-shadow: inset 0 -2px 0 var(--accent); }
+.move .san:focus-visible { outline: 3px solid var(--accent); outline-offset: -1px; }
 /* Narrow: the moves are one row that scrolls sideways, as on chess.com's phone layout. */
 .app[data-layout="narrow"] .moves { display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
 .app[data-layout="narrow"] .move { flex: none; }
 /* Wide: a column of numbered move pairs that scrolls. */
 .app[data-layout="wide"] .moves { flex: 1 1 auto; min-height: 60px; overflow-y: auto; }
 .app[data-layout="wide"] .move { display: grid; grid-template-columns: 2.6em 1fr 1fr; width: 100%; padding: 1px 0; }
+
+/* The review bar and the tools (sound, flip, settings) share a row; beside the board the tools wrap under it. */
+.navrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.nav, .tools { display: flex; align-items: center; gap: 4px; }
+.tools { margin-inline-start: auto; }
+.nav .act.icon, .tools .act.icon { min-width: 32px; min-height: 32px; padding: 0 6px; font-size: 18px; }
+.nav .act.icon { font-size: 20px; }
+.app[data-layout="narrow"] .navrow { justify-content: center; }
+.app[data-layout="narrow"] .tools { margin-inline-start: 6px; }
 
 .bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 36px; }
@@ -119,6 +150,9 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 :root[data-theme="dark"] .act.primary { color: #10131a; }
 .act.danger { color: var(--danger); }
 .act.icon { min-width: 40px; padding: 4px 10px; font-size: 18px; line-height: 1; }
+.act.live { border-color: var(--accent); color: var(--accent); }
+.act.mute { display: inline-flex; align-items: center; justify-content: center; }
+.act.mute .speaker { display: block; flex: none; }
 /* The contact's draw offer: its words on one line, Accept and Decline under them. Below the board it floats up from
    the controls' bottom edge over them and the move row, so it never resizes the board; beside the board it is the
    first row of the controls. */
@@ -130,7 +164,22 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .offer { flex: 1 1 100%; text-align: center; font-size: 14px; font-weight: 600; }
 
 /* ---------- the board ---------- */
-.board-wrap { position: relative; width: var(--side); height: var(--side); flex: none; }
+.board-wrap { position: relative; width: var(--side); height: var(--side); flex: none; border-radius: 4px; }
+/* Reviewing a past position: a ring round the board, so it never passes for the live game. */
+.board-wrap.reviewing { box-shadow: 0 0 0 3px var(--accent); }
+
+/* The game-over card: on the board, not modal, the board visible round it. */
+.over {
+  position: absolute; left: 50%; top: 50%; z-index: 7; transform: translate(-50%, -50%); width: min(260px, 86%); max-height: 96%;
+  overflow: auto; padding: 12px; border-radius: 10px; text-align: center; background: var(--surface); color: var(--fg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.over[hidden] { display: none; }
+.over-head { margin: 0; font-size: 20px; }
+.over-head:focus { outline: none; }
+.over-head:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.over-reason { margin: 2px 0 10px; color: var(--muted); }
+.over-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .board {
   width: 100%; height: 100%; display: grid; grid-template-rows: repeat(8, 1fr); border-radius: 4px; overflow: hidden;
   /* Set before any touch: a touch-action set when a drag starts is too late, the browser has chosen to pan. */
@@ -211,6 +260,9 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   .sq.target::after, .sq.capture::after { background: none; border: 3px solid Highlight; }
   .sq.check { outline: 4px double LinkText; outline-offset: -5px; }
   .sq.hover { outline: 3px solid Highlight; outline-offset: -3px; }
+  .board-wrap.reviewing { outline: 3px dashed Highlight; outline-offset: 2px; }
+  .over { border: 2px solid CanvasText; forced-color-adjust: auto; }
+  .move .san.current { outline: 2px solid Highlight; }
 }
 
 /* ---------- dialog ---------- */
@@ -232,6 +284,11 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .choice-blue .swatch { background: linear-gradient(135deg, #dee3e6 50%, #8ca2ad 50%); }
 .choice-cburnett .swatch, .choice-classic .swatch { display: none; }
 .hint { margin: 0; color: var(--muted); font-size: 13px; }
+.pgn-text {
+  width: 100%; resize: vertical; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+  color: var(--fg); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.pgn-copy { align-self: flex-start; }
 
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }

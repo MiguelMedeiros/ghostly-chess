@@ -13,7 +13,8 @@ export type PieceSet = "cburnett" | "classic";
 export const PIECE_SETS: readonly PieceSet[] = ["cburnett", "classic"];
 
 /** The SVG namespace: a name for the element type, not an address; nothing is fetched from it. */
-const SVG_NS = "http://www.w3.org/2000/svg";
+/** The SVG namespace: written once in the bundle (test/bundle.test.ts), for every drawn icon. */
+export const SVG_NS = "http://www.w3.org/2000/svg";
 
 // Solid glyphs for both sides, each with U+FE0E so no platform draws the pawn as an emoji (as in 1.0.2).
 const GLYPHS: Record<string, string> = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };

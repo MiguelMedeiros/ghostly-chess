@@ -93,6 +93,26 @@ export const en = {
   say_promote: "promotes to {piece}",
   say_check: "check",
   say_mate: "checkmate",
+  nav: "Review the game",
+  nav_first: "First move",
+  nav_prev: "Previous move",
+  nav_play: "Play the moves",
+  nav_pause: "Pause",
+  nav_next: "Next move",
+  nav_last: "Last move",
+  backToLive: "Back to live",
+  review: "Review",
+  opening: "Opening",
+  sound: "Sounds",
+  /** The pieces a side took, read aloud: "Taken: pawn, knight". */
+  taken: "Taken: {pieces}",
+  /** The material lead, read aloud. */
+  ahead: "{n} ahead",
+  copyPgn: "Copy PGN",
+  pgnTitle: "Game in PGN",
+  copy: "Copy",
+  copied: "Copied",
+  copyByHand: "Copy the selected text (on a phone, press and hold it).",
 };
 
 export type Strings = typeof en;

@@ -26,7 +26,7 @@ export type Prefs = {
   autoQueen: boolean;
   /** Dots and rings on the squares a picked piece may go to. */
   legal: boolean;
-  /** Sounds (the sounds themselves come with a later version). */
+  /** Sounds: moves, captures, checks and the game's start and end (sound.ts). */
   sound: boolean;
   /** Premoves (a later version). */
   premove: boolean;
