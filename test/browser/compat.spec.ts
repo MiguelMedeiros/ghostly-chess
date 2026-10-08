@@ -46,12 +46,15 @@ test("invites from the new-game panel, and the contact accepts the card", async 
   const ana = await openSide(browser, { name: "ana", sides });
   await expect(ana.frame.locator(".status")).toHaveText("Waiting for your contact to open Chess");
   await expect(ana.frame.locator(".setup")).toBeVisible();
-  // Only Unlimited can be played until the clocks come; the others say why.
+  // Until the contact's Chess opens, what it can play is not known: only Unlimited, and why.
   await expect(ana.frame.locator(".setup .preset:not([disabled])")).toHaveCount(1);
   await expect(ana.frame.locator(".setup .preset-unlimited")).toBeEnabled();
-  await expect(ana.frame.locator(".setup .preset-reason")).toHaveText("Coming in a later version of Chess");
+  await expect(ana.frame.locator(".setup .preset-reason")).toHaveText("Waiting for your contact to open Chess");
   const bob = await openSide(browser, { name: "bob", sides });
   await expect(bob.frame.locator(".status")).toHaveText("Invite your contact to a game");
+  // Both name "clock": every preset is on.
+  await expect(ana.frame.locator(".setup .preset:not([disabled])")).toHaveCount(6);
+  await ana.frame.locator(".setup .preset-unlimited").click();
   // By keyboard: focus goes on with the cards instead of dropping to the page.
   await ana.frame.locator(".setup .invite-btn").focus();
   await ana.page.keyboard.press("Enter");

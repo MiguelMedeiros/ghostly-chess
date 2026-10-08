@@ -3,14 +3,16 @@
  * resizes the board.
  *
  * - Setup (phase "setup"): the time-control presets 1|0, 3|2, 5|0, 10|0, 30|0 and Unlimited, and Invite. The toss
- *   decides colours. A preset is enabled only when both sides can play it: this build has no clocks yet, so only
- *   Unlimited is; a preset the contact's Chess lacks says "Your contact needs to update Chess (they have X.Y.Z)".
+ *   decides colours. A preset is enabled only when both sides can play it: a timed one needs "clock" named by both
+ *   hellos, and one the contact's Chess lacks (2.0.0, or 1.0.2) says "Your contact needs to update Chess (they have
+ *   X.Y.Z)".
  * - Invitation (view.invitation): "Your contact invites you: Unlimited", with Accept and Decline. Only the contact's
  *   latest proposal is shown. Terms this build cannot play (a clock, a rematch) keep the card, with Accept off and
  *   the reason under it, as a preset's.
  *
  * Alone there is no setup: New game starts an unlimited game at once.
  */
+import { PRESET_TCS } from "./clock.ts";
 import type { View } from "./game.ts";
 import type { TimeControl } from "./protocol.ts";
 import type { Strings } from "./strings.ts";
@@ -23,14 +25,7 @@ export interface Preset {
   kind: PresetKind;
 }
 
-export const PRESETS: readonly Preset[] = [
-  { tc: [60, 0], kind: "bullet" },
-  { tc: [180, 2], kind: "blitz" },
-  { tc: [300, 0], kind: "blitz" },
-  { tc: [600, 0], kind: "rapid" },
-  { tc: [1800, 0], kind: "classical" },
-  { kind: "unlimited" },
-];
+export const PRESETS: readonly Preset[] = [...PRESET_TCS.map((tc): Preset => ({ tc, kind: kindOf(tc) })), { kind: "unlimited" }];
 
 /** The kind of a time control, by chess.com's bands (estimated time = base + 40 x increment). */
 export function kindOf(tc: TimeControl | undefined): PresetKind {
@@ -64,11 +59,18 @@ export function presetLabel(preset: Preset, t: Strings): string {
  * Whether a preset can be offered now, and why not. `own` is what this build implements; the contact's side is read
  * from the view: its mode (version 1 is Chess 1.0.2's protocol, with no clocks) and the features both named.
  */
-export function presetState(tc: TimeControl | undefined, view: Pick<View, "mode" | "features" | "peerVersion">, own: readonly string[], t: Strings): { enabled: boolean; reason?: string } {
+export function presetState(
+  tc: TimeControl | undefined,
+  view: Pick<View, "mode" | "features" | "peerVersion"> & Partial<Pick<View, "peerOpen">>,
+  own: readonly string[],
+  t: Strings,
+): { enabled: boolean; reason?: string } {
   if (!tc) return { enabled: true };
   if (!own.includes("clock")) return { enabled: false, reason: t.comingSoon };
   const peerHasClock = view.mode === "v2" && view.features.includes("clock");
   if (peerHasClock) return { enabled: true };
+  // A contact not seen since this page opened: what its Chess can do is known when it opens.
+  if (view.peerOpen === false && view.mode !== "v2" && !view.peerVersion) return { enabled: false, reason: t.waitingPeer };
   const known = view.mode === "v1" || view.mode === "v2";
   if (!known) return { enabled: false, reason: t.needsUpdateOld };
   return { enabled: false, reason: view.peerVersion ? fill(t.needsUpdate, { version: view.peerVersion }) : t.needsUpdateOld };
@@ -77,7 +79,7 @@ export function presetState(tc: TimeControl | undefined, view: Pick<View, "mode"
 /** Why the contact's invitation cannot be accepted, or undefined when it can. */
 export function invitationReason(
   invitation: NonNullable<View["invitation"]>,
-  view: Pick<View, "mode" | "features" | "peerVersion">,
+  view: Pick<View, "mode" | "features" | "peerVersion"> & Partial<Pick<View, "peerOpen">>,
   own: readonly string[],
   t: Strings,
 ): string | undefined {

@@ -49,14 +49,19 @@ describe("the cards on the page", () => {
     expect(setup.hidden).toBe(false);
     expect(anaRoot.querySelector(".status")!.textContent).toBe("Waiting for your contact to open Chess");
     const presets = [...setup.querySelectorAll<HTMLButtonElement>(".preset")];
+    // Before the contact's Chess has opened, what it can play is not known: only Unlimited, and why.
     expect(presets.map((p) => p.disabled)).toEqual([true, true, true, true, true, false]);
-    expect(presets[0].title).toBe("Coming in a later version of Chess");
+    expect(presets[0].title).toBe("Waiting for your contact to open Chess");
     expect(presets[5].getAttribute("aria-pressed")).toBe("true");
-    expect(setup.querySelector(".preset-reason")!.textContent).toBe("Coming in a later version of Chess");
+    expect(setup.querySelector(".preset-reason")!.textContent).toBe("Waiting for your contact to open Chess");
     const bob = await open(b);
     const bobRoot = mount(bob);
     await settle(ana, bob);
     expect(anaRoot.querySelector(".status")!.textContent).toBe("Invite your contact to a game");
+    // Both name "clock": every preset is on.
+    expect(presets.map((p) => p.disabled)).toEqual([false, false, false, false, false, false]);
+    expect(setup.querySelector<HTMLElement>(".preset-reason")!.hidden).toBe(true);
+    presets[5].click();
     setup.querySelector<HTMLButtonElement>(".invite-btn")!.click();
     await settle(ana, bob);
     expect(anaRoot.querySelector(".status")!.textContent).toBe("Invitation sent");
@@ -107,13 +112,13 @@ describe("the cards on the page", () => {
     expect(bobRoot.querySelector(".board")!.contains(document.activeElement)).toBe(true);
   });
 
-  it("keeps a timed invitation's card with Accept off and the reason, and Decline on", async () => {
+  it("keeps a timed invitation's card with Accept off and the reason, and Decline on, when the contact names no clock", async () => {
     const [a, b] = chatPair();
     const ana = await open(a);
     const root = mount(ana);
-    b.launch(); // a later Chess with clocks: a script here
+    b.launch(); // a Chess 2.0.0 (no clocks) that still sends a timed seek: a script here
     await settle(ana);
-    a.inject(encodeMessage({ k: "hello", pv: 2, f: ["clock"] }));
+    a.inject(encodeMessage({ k: "hello", pv: 2, f: [] }));
     a.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [], tc: [300, 0] }));
     await settle(ana);
     const card = root.querySelector<HTMLElement>(".invitation")!;
@@ -123,7 +128,7 @@ describe("the cards on the page", () => {
     expect(accept.disabled).toBe(true);
     const reason = card.querySelector<HTMLElement>(".invite-reason")!;
     expect(reason.hidden).toBe(false);
-    expect(reason.textContent).toBe("Coming in a later version of Chess");
+    expect(reason.textContent).toBe("Your contact needs to update Chess (they have 2.0.0)");
     expect(accept.getAttribute("aria-describedby")).toBe(reason.id);
     expect(card.querySelector<HTMLButtonElement>(".decline-invite")!.disabled).toBe(false);
   });

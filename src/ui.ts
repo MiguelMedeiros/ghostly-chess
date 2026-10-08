@@ -20,17 +20,24 @@
  * Keys: Left/Right step the review and Home/End go to its ends when focus is outside the board (the board keeps the
  * arrows for its squares); PageUp/PageDown step it from anywhere. A dialog keeps its keys.
  *
- * Below the notices, one standing line (hidden while a notice shows): that this side may still move while the contact's
+ * Below the notices, one standing line (hidden while a notice shows): in a timed game, a pending claim or that the
+ * contact's Chess isn't answering (its strip keeps its name, marked); that this side may still move while the contact's
  * Chess is closed, that an invitation waits for the contact, or, with Chess 1.0.2 (version 1), what the contact's
  * version lacks, with the details behind ⓘ. The new-game panel and the contact's invitation are cards on the board
  * (setup.ts), so the board keeps its size. While the contact's invitation shows, .status says it, and it is announced
  * when it comes; a card that hides under focus hands it to the invitation's button or the board.
+ *
+ * Clocks (a timed game): each strip ends with its side's clock, m:ss with tenths under 20 s, the running one marked.
+ * The contact's is an estimate from this side's own send. The page calls the game's tick() a few times a second while
+ * a timed game goes on, which flags, acks and notices silence; this side's clock turns red and the low-time sound
+ * plays once at 20 s (10 s in bullet), and a screen reader hears 30 s and 10 s left.
  *
  * Stable for Ghostly's end-to-end tests: the .status and .side texts, and the squares (see board.ts). .status keeps
  * 1.0.2's words, also while this side may still move with the contact away: the hint is a line of its own.
  */
 import type { ChessController, Notice, View } from "./game.ts";
 import { createAnnouncer } from "./announce.ts";
+import { formatClock, lowTimeMs } from "./clock.ts";
 import { Board } from "./board.ts";
 import { openDialog } from "./dialog.ts";
 import { OWN_FEATURES } from "./game.ts";
@@ -57,6 +64,7 @@ const NOTICE_KEY: Record<Notice, StringKey> = {
   "peer-new-game": "notice_peerNewGame",
   "send-failed": "notice_sendFailed",
   declined: "notice_declined",
+  "clock-off": "notice_clockOff",
 };
 /** Notices that report what happened rather than a fault: they are announced politely, not as alerts. */
 const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game", "declined"]);
@@ -77,6 +85,8 @@ const fill = (template: string, values: Record<string, string>) => template.repl
 
 /** The standing line's words for a view, if any: see the module comment. */
 export function standingText(view: View, t: Strings): { text: string; details: boolean } | null {
+  if (view.pendingClaim) return { text: t.pendingClaim, details: false };
+  if (view.peerSilent) return { text: t.peerSilent, details: false };
   if (view.phase === "playing" && !view.peerOpen && view.canMove) return { text: t.canStillMove, details: false };
   if (view.phase === "invited" && !view.peerOpen) return { text: t.invitedAway, details: false };
   if (view.peerOpen && view.mode === "v1" && view.phase !== "alone" && view.phase !== "loading") {
@@ -147,6 +157,15 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   const play = el("div", "play");
   const top = el("div", "strip top");
   const bottom = el("div", "strip bottom");
+  // Each strip's clock: kept across the strip's redraws, its text set on every tick.
+  const clockOf = new Map<HTMLElement, HTMLElement>();
+  for (const node of [top, bottom]) {
+    const clock = el("span", "clock");
+    clock.setAttribute("role", "timer");
+    clock.dir = "ltr";
+    clock.hidden = true;
+    clockOf.set(node, clock);
+  }
   // Made before the page listens to the game: it checks its cursor against each change first.
   const review = new Review(game);
   const board = new Board(review, t, prefs);
@@ -235,15 +254,77 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const name = view.phase === "alone" ? (colour === "w" ? t.whiteName : t.blackName) : view.me ? (colour === view.me ? t.you : t.contact) : node === bottom ? t.you : t.contact;
     const dot = el("span", `dot ${view.me || view.phase === "alone" ? colour : "unknown"}`);
     dot.setAttribute("aria-hidden", "true");
+    // A timed game, the contact silent on its turn: its clock turns muted, and the standing line says why.
+    const silent = Boolean(view.peerSilent && view.me && colour !== view.me);
     const label = el("span", "name", name);
     const taken = record.taken(at)[colour];
     const material = record.material(at);
     const set = prefs.get().pieces;
-    const key = `${name}|${dot.className}|${view.turn === colour && !view.end}|${taken.join("")}|${material}|${set}`;
+    const key = `${name}|${dot.className}|${view.turn === colour && !view.end}|${taken.join("")}|${material}|${set}|${silent}`;
     if (node.dataset.key === key) return;
     node.dataset.key = key;
     node.classList.toggle("to-move", view.turn === colour && !view.end && view.phase !== "toss");
-    node.replaceChildren(dot, label, takenNode(colour, taken, material, set, t));
+    node.classList.toggle("silent", silent);
+    node.replaceChildren(dot, label, takenNode(colour, taken, material, set, t), clockOf.get(node)!);
+  }
+
+  // ---------- clocks ----------
+
+  let ticker: ReturnType<typeof setInterval> | undefined;
+  let lowPlayed = false;
+  let said = new Set<number>();
+  let clockPlies = -1;
+
+  /** Both clocks' text, and this side's low-time warning, from the game's clocks now. */
+  function renderClocks(): void {
+    const view = game.view();
+    const clocks = game.clocks();
+    // A new game (fewer plies than before) warns again.
+    if (view.plies < clockPlies) {
+      lowPlayed = false;
+      said = new Set();
+    }
+    clockPlies = view.plies;
+    const down = board.orientation();
+    for (const [node, colour] of [
+      [bottom, down],
+      [top, down === "w" ? "b" : "w"],
+    ] as const) {
+      const clock = clockOf.get(node)!;
+      clock.hidden = !clocks;
+      if (!clocks || !view.tc) continue;
+      const text = formatClock(clocks[colour]);
+      if (clock.textContent !== text) clock.textContent = text;
+      clock.classList.toggle("running", clocks.running === colour);
+      clock.classList.toggle("low", clocks[colour] < lowTimeMs(view.tc));
+    }
+    if (!clocks || !view.tc || !view.me || clocks.running !== view.me) return;
+    const left = clocks[view.me];
+    if (left < lowTimeMs(view.tc) && !lowPlayed) {
+      lowPlayed = true;
+      sounds.play("lowTime");
+    }
+    for (const at of [30_000, 10_000]) {
+      if (left > at) said.delete(at);
+      else if (left > 0 && !said.has(at)) {
+        said.add(at);
+        announcer.say(fill(t.say_secondsLeft, { n: String(at / 1000) }));
+      }
+    }
+  }
+
+  /** The ticker runs while a timed game goes on: the clocks' text, and the game's own clock work (tick). */
+  function runTicker(view: View): void {
+    const on = Boolean(view.tc && view.phase === "playing" && !view.end);
+    if (on && !ticker) {
+      ticker = setInterval(() => {
+        void game.tick();
+        renderClocks();
+      }, 100);
+    } else if (!on && ticker) {
+      clearInterval(ticker);
+      ticker = undefined;
+    }
   }
 
   function render(): void {
@@ -261,8 +342,10 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     side.textContent = view.me ? (view.me === "w" ? t.youAreWhite : t.youAreBlack) : "";
     if (openingFor?.record !== record || openingFor.at !== at) openingFor = { record, at, opening: openingOf(record.fens.slice(1, MAX_PLY + 1), at) };
     renderOpening(opening, openingFor.opening, t);
-    moves.render(record, at);
+    moves.render(record, at, game.spent());
     reviewBar.render(view.plies);
+    renderClocks();
+    runTicker(view);
     renderActions(view);
     const sound = prefs.get().sound;
     if (mute.dataset.on !== String(sound)) {
@@ -364,21 +447,24 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.newGame, () => void game.newGame()));
     if (view.phase === "playing") {
       const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw());
-      offer.disabled = view.drawOffer !== undefined || !view.peerOpen;
+      offer.disabled = view.drawOffer !== undefined || !view.peerOpen || Boolean(view.claiming);
       out.push(offer);
-      out.push(
-        button(resignArmed ? t.resignSure : t.resign, () => {
-          if (!resignArmed) {
-            resignArmed = true;
-            render();
-            actions.querySelector<HTMLButtonElement>(".danger")?.focus();
-            return;
-          }
-          resignArmed = false;
-          void game.resign();
-        }, "danger"),
-      );
+      const resign = button(resignArmed ? t.resignSure : t.resign, () => {
+        if (!resignArmed) {
+          resignArmed = true;
+          render();
+          actions.querySelector<HTMLButtonElement>(".danger")?.focus();
+          return;
+        }
+        resignArmed = false;
+        void game.resign();
+      }, "danger");
+      // Our claim on the contact's time waits for its answer: no resign and no draw until it comes.
+      resign.disabled = Boolean(view.claiming);
+      if (view.claiming) resignArmed = false;
+      out.push(resign);
     } else resignArmed = false;
+    for (const b of offerCard.querySelectorAll("button")) b.disabled = Boolean(view.claiming);
     if (view.phase === "over" || view.phase === "out-of-step") out.push(button(t.newGame, () => void game.newGame(), "primary"));
     if (view.end && view.phase !== "alone") out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
@@ -432,7 +518,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const layout = wide ? "wide" : "narrow";
     if (app.dataset.layout !== layout) {
       app.dataset.layout = layout;
-      moves.render(game.record(), review.ply());
+      moves.render(game.record(), review.ply(), game.spent());
     }
   }
   fit();
@@ -467,5 +553,6 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     window.removeEventListener("resize", fit);
     board.destroy();
     clearTimeout(noticeTimer);
+    clearInterval(ticker);
   };
 }
