@@ -106,7 +106,16 @@ export interface Relay {
 /** Opens one side. In a chat, `other` is the side already open, if any. */
 export async function openSide(
   browser: Browser,
-  options: { name: string; mode?: Mode; inChat?: boolean; contextOptions?: BrowserContextOptions; relay?: Relay; sides?: Map<string, Side> },
+  options: {
+    name: string;
+    mode?: Mode;
+    inChat?: boolean;
+    contextOptions?: BrowserContextOptions;
+    relay?: Relay;
+    sides?: Map<string, Side>;
+    /** Scripts to run in every frame before the page's own (a probe that watches a browser API). */
+    init?: (() => void)[];
+  },
 ): Promise<Side> {
   const { name, mode = "top", inChat = true } = options;
   const sides = options.sides ?? new Map<string, Side>();
@@ -140,6 +149,7 @@ export async function openSide(
     return true;
   });
   await page.addInitScript(installBroker, { name, version: "1.1.0", inChat, childOnly: mode === "frame" } satisfies BrokerOptions);
+  for (const script of options.init ?? []) await page.addInitScript(script);
   sides.set(name, side);
   await page.goto(`${ORIGIN}/index.html`);
   side.frame = await ready;
@@ -147,10 +157,15 @@ export async function openSide(
 }
 
 /** Two sides of one chat, both open, colours tossed. */
-export async function chatPair(browser: Browser, mode: Mode = "top", contextOptions?: BrowserContextOptions): Promise<{ white: Side; black: Side; sides: Side[] }> {
+export async function chatPair(
+  browser: Browser,
+  mode: Mode = "top",
+  contextOptions?: BrowserContextOptions,
+  init?: (() => void)[],
+): Promise<{ white: Side; black: Side; sides: Side[] }> {
   const sides = new Map<string, Side>();
-  const ana = await openSide(browser, { name: "ana", mode, sides, contextOptions });
-  const bob = await openSide(browser, { name: "bob", mode, sides, contextOptions });
+  const ana = await openSide(browser, { name: "ana", mode, sides, contextOptions, init });
+  const bob = await openSide(browser, { name: "bob", mode, sides, contextOptions, init });
   for (const side of [ana, bob]) await side.frame.locator(".side").filter({ hasText: /You play (white|black)/ }).waitFor();
   const anaWhite = (await ana.frame.locator(".side").textContent())!.includes("white");
   return { white: anaWhite ? ana : bob, black: anaWhite ? bob : ana, sides: [ana, bob] };
