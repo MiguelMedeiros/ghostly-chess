@@ -807,6 +807,46 @@ describe("draw offers in version 2 (both sides on 2.2.0)", () => {
     for (const side of [white, b]) expect(side.game.view().end).toEqual({ result: "1/2-1/2", why: "agreed" });
   });
 
+  it("ends at the offer's ply when the accept crosses the offerer's next move: the move goes, both hold one history", async () => {
+    // A plain move, and a mating one (Qxf7#): the accept was made before either reached the accepter.
+    for (const [opening, from, to] of [[["e2e4", "e7e5"], "g1", "f3"], [SCHOLARS_MATE.slice(0, 6), "h5", "f7"]] as [string[], Square, Square][]) {
+      const sides = await start();
+      const { white, black } = sides;
+      await play(sides, ...opening);
+      await white.game.offerDraw();
+      await settle(white, black);
+      const before = [white.broker.sent.length, black.broker.sent.length];
+      await Promise.all([white.game.move(from, to), black.game.answerDraw(true)]);
+      // Bounded: two sides that disagree must not send syncs back and forth for ever.
+      for (let i = 0; i < 60; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(white, black);
+      for (const side of [white, black]) {
+        expect(saved(side).m, `${to}`).toEqual(opening);
+        expect(side.game.view().end).toEqual({ result: "1/2-1/2", why: "agreed" });
+        expect(side.notices).toEqual([]);
+      }
+      expect(white.game.history()).toEqual(black.game.history());
+      expect(white.broker.sent.length - before[0]).toBeLessThanOrEqual(4);
+      expect(black.broker.sent.length - before[1]).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("keeps the draw at the later ply when the accepter saw the offerer's move first", async () => {
+    const sides = await start();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5");
+    await white.game.offerDraw();
+    await settle(white, black);
+    await play(sides, "g1f3");
+    // Black accepts with the offer's n (2) while holding 3 plies: White cannot tell from the frame, Black's sync tells.
+    await black.game.answerDraw(true);
+    await settle(white, black);
+    for (const side of [white, black]) {
+      expect(saved(side).m).toEqual(["e2e4", "e7e5", "g1f3"]);
+      expect(side.game.view().end).toEqual({ result: "1/2-1/2", why: "agreed" });
+    }
+  });
+
   it("keeps 1.0.2's rule in version 1: any move clears an offer", async () => {
     const sides = await start("1.0.2");
     const { white, black } = sides;

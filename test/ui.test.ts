@@ -124,9 +124,15 @@ describe("takeback on the page", () => {
     const asked = w.querySelector<HTMLButtonElement>(".actions .takeback-btn")!;
     expect(asked.disabled).toBe(true);
     expect(asked.getAttribute("aria-label")).toBe("Takeback asked");
+    // While the ask waits, the asker's status says so, and Abort waits too (it could cross the accept).
+    expect(w.querySelector(".status")!.textContent).toBe("Takeback asked");
+    expect(w.querySelector<HTMLButtonElement>(".actions .abort-btn")!.disabled).toBe(true);
     const card = b.querySelector<HTMLElement>(".offer-card")!;
     expect(card.hidden).toBe(false);
     expect(card.querySelector(".offer")!.textContent).toBe("Your contact asks to take back a move");
+    // The card's group is named by what it answers, and the ask is read aloud.
+    expect(card.getAttribute("aria-label")).toBe("Your contact asks to take back a move");
+    expect(b.querySelector(".announce")!.textContent!.trim()).toBe("Your contact asks to take back a move");
     card.querySelector<HTMLButtonElement>(".primary")!.click();
     await settle(sides.white, sides.black);
     expect(card.hidden).toBe(true);

@@ -32,7 +32,23 @@ describe("prefs", () => {
     expect(await new PrefsStore(new MockBroker("bob")).load()).toEqual(DEFAULT_PREFS);
     // Nothing else is stored, and nothing extra rides in the record.
     expect([...broker.stored.keys()]).toEqual([PREFS_KEY]);
-    expect(Object.keys(JSON.parse(broker.stored.get(PREFS_KEY)!)).sort()).toEqual(Object.keys(DEFAULT_PREFS).sort());
+    expect(Object.keys(JSON.parse(broker.stored.get(PREFS_KEY)!)).sort()).toEqual([...Object.keys(DEFAULT_PREFS), "pm"].sort());
+  });
+
+  it("turn premoves on for a record written by 2.0 or 2.1, whose premove: false was never the player's choice", async () => {
+    // Chess 2.1 had no premove control, but wrote its whole record, premove: false included, on any change.
+    const old = { v: 1, theme: "blue", pieces: "cburnett", coords: false, autoQueen: false, legal: true, sound: false, premove: false, turned: false };
+    expect(readPrefs(old)).toEqual({ ...DEFAULT_PREFS, theme: "blue", coords: false, sound: false, premove: true });
+    const broker = new MockBroker("ana");
+    broker.stored.set(PREFS_KEY, JSON.stringify(old));
+    const store = new PrefsStore(broker);
+    expect((await store.load()).premove).toBe(true);
+    // A choice made from 2.2.0 on is kept, and the other settings stay as they were.
+    await store.set({ premove: false });
+    const again = await new PrefsStore(broker).load();
+    expect(again).toEqual({ ...DEFAULT_PREFS, theme: "blue", coords: false, sound: false, premove: false });
+    await store.set({ theme: "brown" });
+    expect((await new PrefsStore(broker).load()).premove).toBe(false);
   });
 
   it("ignore a value set to something outside its range", async () => {

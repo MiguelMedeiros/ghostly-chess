@@ -269,6 +269,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   let lastPlies = -1;
   let lastEnd = "";
   let lastInvitation = "";
+  let lastAsk = "";
   let seen: Seen | null = null;
   let shownPly = -1;
   let openingFor: { record: GameHistory; at: number; opening: Opening | undefined } | null = null;
@@ -417,6 +418,10 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const invitation = view.invitation ? invitationWords(view.invitation, t) : "";
     if (invitation && invitation !== lastInvitation) announcer.say(invitation);
     lastInvitation = invitation;
+    // The contact's takeback ask or draw offer, when it comes: the card alone would go unheard too.
+    const ask = view.phase === "playing" ? (view.takeback === "peer" ? t.peerAsksTakeback : view.drawOffer === "peer" ? t.peerOffersDraw : "") : "";
+    if (ask && ask !== lastAsk) announcer.say(ask);
+    lastAsk = ask;
   }
 
   /** How the game ended, from this side: "You won: checkmate". */
@@ -447,6 +452,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
         return t.outOfStep;
       default:
         if (!view.peerOpen) return t.away;
+        // Our takeback ask waits: no move until it is answered, and the status says why.
+        if (view.takeback === "me") return `${t.takebackAsked}${check}`;
         return `${view.me === view.turn ? t.yourMove : t.theirMove}${check}`;
     }
   }
@@ -480,9 +487,11 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     if ((offerCard.dataset.kind ?? "") !== kind) {
       offerCard.dataset.kind = kind;
       const answer = (yes: boolean) => void (kind === "takeback" ? game.answerTakeback(yes) : game.answerDraw(yes));
-      offerCard.replaceChildren(
-        ...(kind ? [el("span", "offer", kind === "takeback" ? t.peerAsksTakeback : t.peerOffersDraw), button(t.accept, () => answer(true), "primary"), button(t.decline, () => answer(false))] : []),
-      );
+      const words = kind === "takeback" ? t.peerAsksTakeback : t.peerOffersDraw;
+      offerCard.replaceChildren(...(kind ? [el("span", "offer", words), button(t.accept, () => answer(true), "primary"), button(t.decline, () => answer(false))] : []));
+      // The group is named by what it answers, so Accept and Decline are never heard alone.
+      if (kind) offerCard.setAttribute("aria-label", words);
+      else offerCard.removeAttribute("aria-label");
       offerCard.hidden = !kind;
     }
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.newGame, () => void game.newGame()));
@@ -497,15 +506,22 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
       const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw(), "draw-btn");
       offer.disabled = !view.canDraw;
       out.push(offer);
-      // Before ply 2, Abort (no result) replaces Resign; Resign asks first. Our claim waiting: no resign (C7).
-      if (view.canAbort) out.push(button(t.abort, () => void game.abort(), "danger abort-btn"));
-      else {
+      // Before ply 2, Abort (no result) replaces Resign; Resign asks first. Our claim waiting: no resign (C7). Our
+      // takeback ask waiting: neither, nor an answer to a draw offer, which could cross the accept.
+      const waiting = Boolean(view.claiming) || view.takeback === "me";
+      if (view.canAbort) {
+        const abort = button(t.abort, () => void game.abort(), "danger abort-btn");
+        // At 320 px the label may end in an ellipsis: the title (and the accessible name) keep it whole.
+        abort.title = t.abort;
+        abort.disabled = waiting;
+        out.push(abort);
+      } else {
         const resign = button(t.resign, (b) => askResign(b), "danger resign-btn");
-        resign.disabled = Boolean(view.claiming);
+        resign.disabled = waiting;
         out.push(resign);
       }
     }
-    for (const b of offerCard.querySelectorAll("button")) b.disabled = Boolean(view.claiming);
+    for (const b of offerCard.querySelectorAll("button")) b.disabled = Boolean(view.claiming) || (offerCard.dataset.kind === "draw" && view.takeback === "me");
     if (view.phase === "over" || view.phase === "out-of-step") out.push(button(t.newGame, () => void game.newGame(), "primary"));
     if (view.end && view.phase !== "alone") out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));

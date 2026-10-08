@@ -446,7 +446,7 @@ export const fr: Strings = {
   notice_takebackDeclined: "Votre contact a refusé la reprise.",
   rematch: "Revanche",
   resignAsk: "Abandonner cette partie ?",
-  abort: "Annuler",
+  abort: "Annuler la partie",
   set_premove: "Autoriser les pré-coups",
   premove: "pré-coup",
 };
@@ -595,7 +595,7 @@ export const it: Strings = {
   notice_takebackDeclined: "Il tuo contatto ha rifiutato il ritiro.",
   rematch: "Rivincita",
   resignAsk: "Abbandonare questa partita?",
-  abort: "Annulla",
+  abort: "Annulla partita",
   set_premove: "Consenti le premosse",
   premove: "premossa",
 };
@@ -1042,7 +1042,7 @@ export const ar: Strings = {
   notice_takebackDeclined: "رفضت جهة اتصالك التراجع.",
   rematch: "مباراة ثأرية",
   resignAsk: "تستسلم في هذه اللعبة؟",
-  abort: "إلغاء",
+  abort: "إلغاء المباراة",
   set_premove: "السماح بالنقلات المسبقة",
   premove: "نقلة مسبقة",
 };
