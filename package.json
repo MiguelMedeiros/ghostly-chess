@@ -14,6 +14,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "check:bundle": "node scripts/bundle.mjs",
     "dev": "vite",
     "digest": "node scripts/digest.mjs",
     "gen:openings": "node scripts/openings.mjs",

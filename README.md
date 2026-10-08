@@ -94,6 +94,10 @@ the same commit always gives the same bytes, so a build can be checked against a
 | `test/browser/fixtures/chess-1.0.2.html` | The published Chess 1.0.2 page, which `test/browser/compat.spec.ts` plays against |
 | `test/browser/fixtures/chess-2.2.0.html` | The Chess 2.2.0 page (a build of commit 9d903fef7), the last without names: the same spec checks that it is never sent one |
 | `ghostly-app.json` | The manifest, without `publisher`, `sequence` and `files` (the CLI writes those) |
+| `app.ghostlyapp` | The signed bundle of the published version, once one is signed from here (see [docs/PUBLISHING.md](docs/PUBLISHING.md)) |
+| `scripts/stage.mjs`, `scripts/bundle.mjs` | `npm run stage`: the folder `ghostly app publish` signs. `npm run check:bundle`: whether a signed bundle is this checkout's build, the digest it will have, and the store's listing for it |
+| `test/browser/release.spec.ts` | The release smoke: a timed game drawn by agreement, its PGN, a rematch won by checkmate, in the sandboxed frame |
+| `CHANGES.md`, `docs/PUBLISHING.md` | What each published version changed, and how a version is published |
 | `vite.config.ts` | The single-file build, with the license notices of what it bundles |
 
 ## Older versions
@@ -115,36 +119,20 @@ version that speaks protocol 2, and `test/version.test.ts` keeps the manifest at
 
 ## Publish a new version
 
-Only the holder of the Chess publisher key can sign an update: the store refuses a bundle signed by another key.
+Only the holder of the Chess publisher key can sign an update: Ghostly refuses a bundle signed by another key.
+[docs/PUBLISHING.md](docs/PUBLISHING.md) has every step and command: prepare the version, build and stage, sign with
+`ghostly app publish`, commit the signed `app.ghostlyapp` at this repository's root, then list it in the store and
+sign the store's index. [CHANGES.md](CHANGES.md) says what each published version changed.
 
-1. Tick every item of [Checked by hand](#checked-by-hand) for this version. Then raise `version` in
-   `ghostly-app.json` and `package.json`.
-2. Build and stage the folder to sign. `ghostly app publish` takes every file in the folder it is given, so stage it
-   rather than pointing it at the repository:
-
-   ```sh
-   npm ci && npm test && npm run build
-   npm run stage              # release/index.html + release/ghostly-app.json, with `sources` set to the store's URL
-   ```
-
-3. Sign it with the [Ghostly CLI](https://github.com/MiguelMedeiros/ghostly/tree/dev/packages/cli), over the bundle in
-   a clone of [ghostly-store](https://github.com/MiguelMedeiros/ghostly-store), which raises `sequence`:
-
-   ```sh
-   ghostly app publish release --key ~/ghostly-keys/chess-publisher.key \
-     --out <ghostly-store>/apps/chess.odcgw6wjw8dynqop/app.ghostlyapp
-   ghostly app verify <ghostly-store>/apps/chess.odcgw6wjw8dynqop/app.ghostlyapp
-   ```
-
-   Never commit the key, a staged folder or a bundle here.
+`app.ghostlyapp` at the root is the only bundle ever committed here. Never commit the key or a staged folder.
 
 ## How it is listed
 
 Chess is in the official [Ghostly store](https://github.com/MiguelMedeiros/ghostly-store) at
-`apps/chess.odcgw6wjw8dynqop/`: the signed `app.ghostlyapp` and a `listing.json` (`ref`, `sequence`, `digest`, the URL
-clients fetch, title and tagline). After a new bundle, update `sequence` and `digest` in `listing.json` to what
-`ghostly app verify` prints, and sign the store's index again (see the store's README). Clients see the update on their
-next index refresh.
+`apps/chess.odcgw6wjw8dynqop/listing.json`: its `ref`, the listed version (`sequence` and `digest`), the URLs clients
+fetch the bundle from (this repository's, pinned to a commit and at `HEAD`), title and tagline. A Chess installed from
+the store updates only to the version the store's signed index lists. Versions up to 1.0.2 were published from the
+Ghostly repository, with the bundle in the store.
 
 ## License
 
