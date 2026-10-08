@@ -307,6 +307,22 @@ export class Board {
       const square = this.squareOf(e.target);
       if (square) this.activate(square);
     });
+    // A press released off the board before it became a drag (nothing captured it yet), or a window that lost focus
+    // mid-press: the press ends there, or the board would wait for a pointerup that never comes.
+    const offBoard = (e: PointerEvent) => {
+      if (this.press && e.pointerId === this.press.pointerId && !this.grid.contains(e.target as Node)) this.pointerCancel(e);
+    };
+    on(document, "pointerup", offBoard);
+    on(document, "pointercancel", offBoard);
+    const blur = () => {
+      if (!this.press) return;
+      this.press = null;
+      this.releasePointer();
+      this.endDrag();
+      this.render(this.game.view());
+    };
+    window.addEventListener("blur", blur);
+    this.offs.push(() => window.removeEventListener("blur", blur));
     on(this.grid, "keydown", (e) => this.key(e));
     on(this.grid, "contextmenu", (e) => {
       if (this.press) e.preventDefault();

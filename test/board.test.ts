@@ -172,6 +172,21 @@ describe("input", () => {
     expect(sq(root, "e4").textContent).toBe("");
   });
 
+  it("ends a press released off the board, so the next press still works", async () => {
+    const { white, black } = await startChat();
+    const root = mount(white);
+    pointer(sq(root, "e2"), "pointerdown", 100, 300);
+    pointer(document.body, "pointerup", 100, 900);
+    await tick();
+    pointer(sq(root, "d2"), "pointerdown", 80, 300);
+    expect(sq(root, "d2").classList.contains("selected")).toBe(true);
+    pointer(sq(root, "d2"), "pointerup", 80, 300);
+    await tick();
+    sq(root, "d4").click();
+    await settle(white, black);
+    expect(moves(white).map((m) => m.m)).toEqual(["d2d4"]);
+  });
+
   it("selects nothing on the contact's turn", async () => {
     const { black } = await startChat();
     const root = mount(black);
