@@ -156,12 +156,17 @@ In a clone of [ghostly-store](https://github.com/MiguelMedeiros/ghostly-store), 
    and add `https://raw.githubusercontent.com/MiguelMedeiros/ghostly-store/HEAD/apps/chess.odcgw6wjw8dynqop/app.ghostlyapp`
    as a third URL.
 
-3. If the store's `GHOSTLY_COMMIT` is older than the Ghostly that reads `view`, the check refuses the bundle
-   (`unknown-key: view`). Raise it to the commit the CLI was built from, in the same pull request:
+3. Raise the store's `GHOSTLY_COMMIT`, in the same pull request. **For 2.3.0 this is required:** the store pins
+   Ghostly at `eacf4cf1d11e8d0077712f35115879ce643228d5`, which is older than `view`, and its check refuses the
+   bundle with `unknown-key: view`. Ghostly `dev` at `cf52ce9855a0962ac564762547f4bac33a13a92a` is known good: its
+   CLI verifies a 2.3.0 bundle and Chess 1.0.2, and the store's whole check and typecheck pass with it.
 
    ```sh
-   git -C ~/code/ghostly-cli rev-parse HEAD > GHOSTLY_COMMIT
+   echo cf52ce9855a0962ac564762547f4bac33a13a92a > GHOSTLY_COMMIT
    ```
+
+   A later commit of `dev` works too (`git -C ~/code/ghostly-cli rev-parse HEAD > GHOSTLY_COMMIT`), once
+   `scripts/check.sh` passes with it. Once the store pins a Ghostly that reads `view`, later versions skip this step.
 
 4. Build and sign the index, **in the same pull request as the listing**. The signed index is what clients read:
    while it still lists the old version at a URL the pull request removed, nobody can install Chess.
