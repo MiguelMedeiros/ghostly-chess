@@ -25,9 +25,20 @@ npm run dev       # a dev server; outside Ghostly it plays alone on a stand-in b
 npm run test:browser   # the built page in Chromium and WebKit (npx playwright install chromium webkit once)
 ```
 
-`npm run test:browser` drags pieces with a mouse and a finger, checks the layout from a 320 px phone to a wide window
-(Desktop's 560x640 chat-app window included), and runs the page inside `<iframe sandbox="allow-scripts">` under a CSP
-like the web runner's. Desktop's WKWebView stays a check by hand.
+`npm run test:browser` drags pieces with a mouse and a finger, taps them, checks the layout from a 320 px phone to a
+wide window (Desktop's 560x640 chat-app window included) and that the board keeps its size while a game goes on,
+checks a dark high-contrast theme (forced colours, Chromium), and runs the page inside
+`<iframe sandbox="allow-scripts">` under a CSP like the web runner's.
+
+### Checked by hand
+
+Playwright drives no finger drag in WebKit: its WebKit run checks the drag path with synthetic pointer events, and a
+real tap, tap. Before a release, check these by hand:
+
+- **iOS Safari:** a finger drags a piece to its square, the page does not scroll under the finger, and tap, tap plays
+  a move.
+- **Desktop's WKWebView (macOS):** the same drag without scrolling, tap, tap or click, click, and the 560x640 chat-app
+  window shows the whole board and its controls.
 
 `npm run digest` prints the built file's SHA-256 in the form a signed bundle lists it. The build is reproducible:
 the same commit always gives the same bytes, so a build can be checked against a published version (1.0.2 was

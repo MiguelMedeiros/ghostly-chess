@@ -71,8 +71,15 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
 .panel { display: flex; flex-direction: column; gap: 6px; width: var(--side); min-width: 0; }
 .app[data-layout="wide"] .panel { width: 240px; max-height: calc(var(--side) + 64px); }
-/* Below the board, the panel's width does not follow the board's, so its height (which sizes the board) is stable. */
+/*
+ * Below the board, the board is sized from the panel's reserved height (NARROW_PANEL in ui.ts), so each line keeps its
+ * height whatever it holds: status 20, side 18, move row 30, controls 36, notices 18, 6 px between them.
+ */
 .app[data-layout="narrow"] .panel { width: 100%; max-width: 640px; }
+.app[data-layout="narrow"] .status { min-height: 20px; }
+.app[data-layout="narrow"] .side { min-height: 18px; }
+.app[data-layout="narrow"] .moves { min-height: 30px; }
+.app[data-layout="narrow"] .notices { min-height: 18px; }
 .status { margin: 0; font-weight: 600; min-height: 1.35em; }
 .side { margin: 0; color: var(--muted); font-size: 13px; min-height: 1.35em; }
 .app[data-layout="narrow"] .status,
@@ -82,6 +89,8 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   margin: 0; padding: 4px 6px; list-style: none; font-size: 14px; font-variant-numeric: tabular-nums;
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
 }
+/* Before the first move: no box and no tab stop, whatever display a layout gives the list. */
+.moves[hidden], .offer-card[hidden] { display: none !important; }
 .moves:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
 .move { display: inline-flex; gap: 6px; }
 .move .no { color: var(--muted); }
@@ -93,11 +102,11 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .app[data-layout="wide"] .moves { flex: 1 1 auto; min-height: 60px; overflow-y: auto; }
 .app[data-layout="wide"] .move { display: grid; grid-template-columns: 2.6em 1fr 1fr; width: 100%; padding: 1px 0; }
 
-.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 36px; }
 .app[data-layout="narrow"] .bar { justify-content: center; }
-.notice { margin: 0; color: var(--muted); font-size: 13px; min-height: 1.35em; }
-.notice:empty { min-height: 0; }
+.notice { margin: 0; color: var(--muted); font-size: 13px; line-height: 18px; }
+.notice:empty { display: none; }
 .app[data-layout="narrow"] .notice { text-align: center; }
 
 .act {
@@ -110,7 +119,15 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 :root[data-theme="dark"] .act.primary { color: #10131a; }
 .act.danger { color: var(--danger); }
 .act.icon { min-width: 40px; padding: 4px 10px; font-size: 18px; line-height: 1; }
-.offer { font-size: 14px; }
+/* The contact's draw offer: its words on one line, Accept and Decline under them. Below the board it floats up from
+   the controls' bottom edge over them and the move row, so it never resizes the board; beside the board it is the
+   first row of the controls. */
+.offer-card {
+  flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 6px; padding: 4px 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+}
+.app[data-layout="narrow"] .offer-card { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+.offer { flex: 1 1 100%; text-align: center; font-size: 14px; font-weight: 600; }
 
 /* ---------- the board ---------- */
 .board-wrap { position: relative; width: var(--side); height: var(--side); flex: none; }
@@ -182,8 +199,13 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .promo-choice:focus-visible, .promo-cancel:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 .promo-cancel { height: max(24px, calc(var(--side) / 16)); font-size: 18px; background: #f1f1f1; }
 
-/* Windows high contrast and other forced colours: backgrounds vanish there, so the marks become outlines. */
+/*
+ * Windows high contrast and other forced colours. The board keeps its own colours there (its squares, the pieces and
+ * the Classic glyphs would otherwise turn Canvas on Canvas, black pieces vanishing on a dark theme); the marks become
+ * outlines in system colours as well, which read on any square.
+ */
 @media (forced-colors: active) {
+  .board-wrap, .ghost, .promo-col { forced-color-adjust: none; }
   .sq.last { outline: 2px dashed CanvasText; outline-offset: -3px; }
   .sq.selected { outline: 4px solid Highlight; outline-offset: -4px; }
   .sq.target::after, .sq.capture::after { background: none; border: 3px solid Highlight; }

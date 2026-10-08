@@ -1,5 +1,10 @@
-// The built page in Chromium and WebKit: drag and drop with a mouse and a finger, the layout at the sizes Chess runs
-// at, and the page in a sandboxed frame under the web runner's CSP.
+// The built page in Chromium and WebKit: drag and drop with a mouse and a finger, taps, the layout at the sizes Chess
+// runs at (and a board that keeps its size while a game goes on), forced colours, and the page in a sandboxed frame
+// under the web runner's CSP.
+//
+// Not covered here: a real finger's drag in WebKit (Playwright drives no touch-move there), and WebKit's choice not
+// to pan the page under it. Both are checked by hand in iOS Safari and in Desktop's WKWebView (README, "Checked by
+// hand").
 import { expect, test } from "@playwright/test";
 import { chatPair, mouseDrag, openSide, squareCenter, type Side } from "./harness.ts";
 
@@ -39,7 +44,7 @@ test.describe("drag and drop", () => {
     for (const side of sides) await side.context.close();
   });
 
-  test("a touch drag plays a move and does not scroll the page", async ({ browser, browserName }) => {
+  test("a touch drag plays a move and does not scroll the page (WebKit: the pointer path only)", async ({ browser, browserName }) => {
     // A short phone window (a keyboard up, or a landscape phone), with a page taller than it, so a finger that panned would scroll it.
     const { white, sides } = await chatPair(browser, "top", { viewport: { width: 360, height: 360 }, hasTouch: true, isMobile: browserName === "chromium" });
     await expect(white.frame.locator(".status")).toHaveText(/^Your move/);
@@ -58,7 +63,8 @@ test.describe("drag and drop", () => {
       await touch("touchEnd", to.x, to.y);
     } else {
       // WebKit through Playwright has no touch-move: pointer events with pointerType "touch" stand in. They check the
-      // drag path, not WebKit's own choice to pan (that one is checked by hand in Safari and Desktop).
+      // drag path only; they never pan, so the scroll check below cannot fail here. WebKit's own choice to pan is
+      // checked by hand in iOS Safari and Desktop's WKWebView.
       await white.frame.locator(".board").evaluate((board, [a, b]) => {
         const fire = (type: string, x: number, y: number) =>
           board.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, pointerType: "touch", isPrimary: true, clientX: x, clientY: y, button: 0 }));
@@ -71,6 +77,23 @@ test.describe("drag and drop", () => {
     await expect(white.frame.locator('[data-square="d4"]')).toHaveText(/♟/);
     await expect(white.frame.locator('[data-square="d2"]')).toHaveText("");
     expect(await white.page.evaluate(() => window.scrollY)).toBe(0);
+    for (const side of sides) await side.context.close();
+  });
+});
+
+test.describe("taps", () => {
+  test("a finger's tap, tap plays a move (a touch's late click is not a second tap)", async ({ browser, browserName }) => {
+    const { white, black, sides } = await chatPair(browser, "top", { viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: browserName === "chromium" });
+    await expect(white.frame.locator(".status")).toHaveText(/^Your move/);
+    const e2 = await squareCenter(white, "e2");
+    await white.page.touchscreen.tap(e2.x, e2.y);
+    await expect(white.frame.locator('[data-square="e2"]')).toHaveClass(/\bselected\b/);
+    const e4 = await squareCenter(white, "e4");
+    await white.page.touchscreen.tap(e4.x, e4.y);
+    for (const side of [white, black]) {
+      await expect(side.frame.locator('[data-square="e4"]')).toHaveText(/♟/);
+      await expect(side.frame.locator('[data-square="e2"]')).toHaveText("");
+    }
     for (const side of sides) await side.context.close();
   });
 });
@@ -102,6 +125,87 @@ test.describe("layout", () => {
       await side.context.close();
     });
   }
+});
+
+test.describe("a board that keeps its size", () => {
+  for (const [width, height] of [[320, 568], [560, 640]] as const) {
+    test(`in a chat at ${width}x${height}, the first move, a draw offer and a notice leave the board as it was`, async ({ browser }) => {
+      const { white, black, sides } = await chatPair(browser, "top", { viewport: { width, height } });
+      const box = async () => {
+        await white.page.waitForTimeout(100); // a layout pass after the change
+        return white.frame.locator(".board").boundingBox();
+      };
+      await expect(white.frame.locator(".status")).toHaveText(/^Your move/);
+      const start = await box();
+      expect(start).not.toBeNull();
+      await mouseDrag(white, "e2", "e4");
+      await expect(white.frame.locator(".moves")).toBeVisible();
+      expect(await box(), "after the first move").toEqual(start);
+      await expect(black.frame.locator(".status")).toHaveText(/^Your move/);
+      await black.frame.getByRole("button", { name: "Offer draw" }).click();
+      const accept = white.frame.getByRole("button", { name: "Accept" });
+      await expect(accept).toBeVisible();
+      expect(await box(), "with the contact's draw offer").toEqual(start);
+      // The offer's buttons are on the screen and not under anything.
+      const acceptBox = (await accept.boundingBox())!;
+      expect(acceptBox.y + acceptBox.height).toBeLessThanOrEqual(height);
+      await accept.click();
+      await expect(white.frame.locator(".status")).toHaveText(/^Draw/);
+      expect(await box(), "after the draw").toEqual(start);
+      await white.page.evaluate(() => (window as unknown as { __deliver: (d: unknown) => void }).__deliver({ k: 42 }));
+      await expect(white.frame.locator(".notice:not(.info)")).not.toBeEmpty();
+      expect(await box(), "with a notice").toEqual(start);
+      for (const side of sides) await side.context.close();
+    });
+  }
+
+  test("before the first move, the empty move list has no box and no tab stop", async ({ browser }) => {
+    const side = await openSide(browser, { name: "solo", inChat: false, contextOptions: { viewport: { width: 375, height: 667 } } });
+    await expect(side.page.locator(".status")).toHaveText("White to move");
+    const moves = await side.page.locator(".moves").evaluate((list) => {
+      const rect = list.getBoundingClientRect();
+      return { display: getComputedStyle(list).display, width: rect.width, height: rect.height };
+    });
+    expect(moves).toEqual({ display: "none", width: 0, height: 0 });
+    // Tab from the board goes past the list: to the controls.
+    await side.page.locator('[data-square="e2"]').focus();
+    await side.page.keyboard.press("Tab");
+    expect(await side.page.evaluate(() => document.activeElement?.classList.contains("moves"))).toBe(false);
+    await side.context.close();
+  });
+});
+
+test.describe("forced colours (Windows high contrast)", () => {
+  test("a dark high-contrast theme keeps the checkerboard and both sides' pieces", async ({ browser, browserName }) => {
+    test.skip(browserName !== "chromium", "Playwright emulates forced colours in Chromium only");
+    for (const pieces of ["cburnett", "classic"] as const) {
+      const side = await openSide(browser, { name: "solo", inChat: false, contextOptions: { viewport: { width: 560, height: 640 }, forcedColors: "active", colorScheme: "dark" } });
+      const page = side.page;
+      await expect(page.locator(".status")).toHaveText("White to move");
+      expect(await page.evaluate(() => matchMedia("(forced-colors: active)").matches)).toBe(true);
+      if (pieces === "classic") {
+        await page.locator(".settings-btn").click();
+        await page.locator('input[value="classic"]').check();
+        await page.keyboard.press("Escape");
+        await expect(page.locator(".board-wrap")).toHaveClass(/\bclassic\b/);
+      }
+      const colours = await page.evaluate(() => {
+        const bg = (s: string) => getComputedStyle(document.querySelector(`[data-square="${s}"]`)!).backgroundColor;
+        const ink = (s: string) => {
+          const square = document.querySelector(`[data-square="${s}"]`)!;
+          const path = square.querySelector("svg.piece path");
+          return path ? getComputedStyle(path).fill : getComputedStyle(square.querySelector(".glyph")!).color;
+        };
+        // e2 and d7 are light squares, d2 and e7 dark ones.
+        return { light: bg("e2"), dark: bg("d2"), e7: bg("e7"), d7: bg("d7"), black: ink("e7"), blackOnDark: ink("d7"), white: ink("e2") };
+      });
+      expect(colours.light, pieces).not.toBe(colours.dark);
+      expect(colours.black, pieces).not.toBe(colours.e7);
+      expect(colours.blackOnDark, pieces).not.toBe(colours.d7);
+      expect(colours.black, pieces).not.toBe(colours.white);
+      await side.context.close();
+    }
+  });
 });
 
 test.describe("in the runner's sandbox", () => {

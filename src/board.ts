@@ -25,6 +25,8 @@ type Promotion = "q" | "r" | "b" | "n";
 const PROMOTIONS: Promotion[] = ["q", "r", "b", "n"];
 /** How far a pointer moves before a press becomes a drag. */
 const DRAG_THRESHOLD_PX = 4;
+/** How long after a press its own click may still come (a touch's click is synthesized later than a mouse's). */
+const CLICK_AFTER_PRESS_MS = 800;
 const SLIDE_MS = 120;
 
 /** What a square shows, as last written to it. */
@@ -88,8 +90,11 @@ export class Board {
   private dragFrom: Square | null = null;
   private hover: Square | null = null;
   private ghost: HTMLElement | null = null;
-  /** A pointer sequence handled the press: the click that follows it is not a second press. */
-  private pointerHandled = false;
+  /**
+   * The last press a pointer made: the click the browser sends after it, on the same square, is that press again and
+   * is skipped. A click with no pointer press before it (assistive tech, switch access, element.click()) is not.
+   */
+  private suppressClick: { square: Square; until: number } | null = null;
   private promotion: { from: Square; to: Square; element: HTMLElement } | null = null;
   /** The ply count after a dropped move: that move does not slide. */
   private noSlide = -1;
@@ -177,10 +182,10 @@ export class Board {
     this.view = view;
     const bottom = this.orientation();
     if (bottom !== this.bottom) {
-      const first = this.bottom === null;
       this.bottom = bottom;
       layout(bottom).forEach((row, r) => this.rows[r].replaceChildren(...row.map((s) => this.squares.get(s)!)));
-      if (first && bottom === "b" && this.focus === "e2") this.focus = "e7";
+      // The keyboard starts on this side's king pawn: e7 when black is at the bottom, whenever the board turns there.
+      if (bottom === "b" && this.focus === "e2") this.focus = "e7";
       this.drawCoords();
     }
     this.element.classList.toggle("classic", this.prefs.pieces === "classic");
@@ -235,7 +240,7 @@ export class Board {
       if (last) classes.push("last");
       if (view.inCheck && piece?.type === "k" && piece.color === view.turn) classes.push("check");
       if (square === this.dragFrom) classes.push("dragging");
-      if (square === this.hover) classes.push("hover");
+      if (square === this.hover) classes.push("hover"); // last: markHover relies on it
       const parts = [square, piece ? t.piece.replace("{colour}", piece.color === "w" ? t.white : t.black).replace("{piece}", t[`piece_${piece.type}`]) : t.empty];
       if (square === this.selected) parts.push(t.selected);
       if (target) parts.push(t.canMoveHere);
@@ -303,8 +308,11 @@ export class Board {
       if (e.target === this.grid) this.pointerCancel(e);
     });
     on(this.grid, "click", (e) => {
-      if (this.pointerHandled) return;
       const square = this.squareOf(e.target);
+      const skip = this.suppressClick;
+      this.suppressClick = null;
+      // detail is 0 for a click no pointer made (element.click(), a screen reader's activation).
+      if (skip && e.detail > 0 && e.timeStamp < skip.until && square === skip.square) return;
       if (square) this.activate(square);
     });
     // A press released off the board before it became a drag (nothing captured it yet), or a window that lost focus
@@ -317,7 +325,6 @@ export class Board {
     const blur = () => {
       if (!this.press) return;
       this.press = null;
-      this.releasePointer();
       this.endDrag();
       this.render(this.game.view());
     };
@@ -345,20 +352,12 @@ export class Board {
     return this.squareOf(event.target);
   }
 
-  private markPointer(): void {
-    this.pointerHandled = true;
-  }
-
-  private releasePointer(): void {
-    // The click that ends this press comes in the same task as its pointerup; it is skipped, the next one is not.
-    setTimeout(() => (this.pointerHandled = false), 0);
-  }
-
   private pointerDown(event: PointerEvent): void {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const square = this.squareOf(event.target);
     if (!square || this.press) return;
-    this.markPointer();
+    // Set before any way out: whatever this press did, the click that follows it on this square is the same press.
+    this.suppressClick = { square, until: event.timeStamp + CLICK_AFTER_PRESS_MS };
     if (this.promotion) return;
     this.focus = square;
     const view = this.game.view();
@@ -388,16 +387,30 @@ export class Board {
     this.moveGhost(event);
     const over = this.squareAt(event);
     if (over !== this.hover) {
+      const was = this.hover;
       this.hover = over;
-      this.drawSquares();
+      // Only the two squares change, without a full draw: a long game makes each draw cost a replay of its moves.
+      if (was) this.markHover(was, false);
+      if (over) this.markHover(over, true);
     }
+  }
+
+  /** Sets one square's hover mark, and keeps what it last wrote in step ("hover" is always its last class). */
+  private markHover(square: Square, on: boolean): void {
+    const button = this.squares.get(square);
+    const drawn = this.drawn.get(square);
+    if (!button || !drawn) return;
+    button.classList.toggle("hover", on);
+    const base = drawn.className.replace(/ hover$/, "");
+    drawn.className = on ? `${base} hover` : base;
   }
 
   private pointerUp(event: PointerEvent): void {
     const press = this.press;
     if (!press || event.pointerId !== press.pointerId) return;
     this.press = null;
-    this.releasePointer();
+    // The click comes after the pointerup: a press held long still skips its own click.
+    this.suppressClick = { square: press.square, until: event.timeStamp + CLICK_AFTER_PRESS_MS };
     if (!press.dragging) {
       // A press and release on the selected piece lets go of it, as a second click did.
       if (press.wasSelected) {
@@ -416,7 +429,6 @@ export class Board {
     const press = this.press;
     if (!press || event.pointerId !== press.pointerId) return;
     this.press = null;
-    this.releasePointer();
     this.endDrag();
     this.render(this.game.view());
   }

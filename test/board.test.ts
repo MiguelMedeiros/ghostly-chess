@@ -6,12 +6,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { MiniAppJson } from "../src/vendor/miniApp.ts";
 import { ar } from "../src/languages.ts";
 import { PREFS_KEY } from "../src/prefs.ts";
-import { mount, play, pointer, settle, sq, startAlone, startChat, tick, type Side } from "./sides.ts";
+import { chatPair } from "./mockBroker.ts";
+import { mount, open, play, pointer, settle, sq, startAlone, startChat, tick, type Side } from "./sides.ts";
 
 afterEach(() => {
   document.documentElement.removeAttribute("dir");
   document.body.replaceChildren();
 });
+
+/** The click a browser sends after a pointer's press and release (detail 1; element.click() sends 0). */
+const pointerClick = (target: Element) => target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The squares as drawn, top row first. */
 const drawn = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>(".rank")].map((row) => [...row.querySelectorAll<HTMLElement>(".sq")].map((s) => s.dataset.square));
@@ -26,6 +31,19 @@ describe("orientation", () => {
     expect(drawn(w)[0][7]).toBe("h8");
     expect(drawn(b)[0][7]).toBe("a1");
     expect(drawn(b)[7][0]).toBe("h8");
+  });
+
+  it("starts black's keyboard focus on e7 when the page was drawn before the toss gave the colours", async () => {
+    const [a, b] = chatPair();
+    const ana = await open(a);
+    const anaRoot = mount(ana);
+    const bob = await open(b);
+    const bobRoot = mount(bob);
+    await settle(ana, bob);
+    const blackRoot = ana.game.view().me === "b" ? anaRoot : bobRoot;
+    const whiteRoot = blackRoot === anaRoot ? bobRoot : anaRoot;
+    expect([...blackRoot.querySelectorAll<HTMLElement>('.sq[tabindex="0"]')].map((s) => s.dataset.square)).toEqual(["e7"]);
+    expect([...whiteRoot.querySelectorAll<HTMLElement>('.sq[tabindex="0"]')].map((s) => s.dataset.square)).toEqual(["e2"]);
   });
 
   it("puts the coordinates on the bottom rank and the left file, in both orientations", async () => {
@@ -133,7 +151,7 @@ describe("input", () => {
     pointer(sq(root, "e4"), "pointermove", 100, 220);
     expect(sq(root, "e4").classList.contains("hover")).toBe(true);
     pointer(sq(root, "e4"), "pointerup", 100, 220);
-    sq(root, "e4").click(); // the click a browser sends after the pointerup: not a second press
+    pointerClick(root.querySelector(".board")!); // the click a browser sends after a drag, on the board: not a press
     await settle(white, black);
     expect(root.querySelector(".ghost")).toBeNull();
     expect(moves(white).map((m) => m.m)).toEqual(["e2e4"]);
@@ -185,6 +203,42 @@ describe("input", () => {
     sq(root, "d4").click();
     await settle(white, black);
     expect(moves(white).map((m) => m.m)).toEqual(["d2d4"]);
+  });
+
+  it("skips the click that follows a pointer's own press, even 100 ms later (a touch's click comes late)", async () => {
+    const solo = await startAlone();
+    const root = mount(solo);
+    pointer(sq(root, "e2"), "pointerdown", 100, 300);
+    pointer(sq(root, "e2"), "pointerup", 100, 300);
+    await wait(100);
+    pointerClick(sq(root, "e2"));
+    // Had the click counted as a second press, it would have let go of the pawn.
+    expect(sq(root, "e2").classList.contains("selected")).toBe(true);
+  });
+
+  it("after a pointer's click, click move, a click no pointer made (a screen reader's) still picks a piece", async () => {
+    const solo = await startAlone();
+    const root = mount(solo);
+    for (const square of ["e2", "e4"]) {
+      pointer(sq(root, square), "pointerdown", 100, 300);
+      pointer(sq(root, square), "pointerup", 100, 300);
+      pointerClick(sq(root, square));
+      await tick(); // time passes between two presses
+    }
+    await settle(solo);
+    expect(solo.game.history()).toEqual(["e4"]);
+    sq(root, "e7").click();
+    expect(sq(root, "e7").classList.contains("selected")).toBe(true);
+  });
+
+  it("a press on the contact's turn does not swallow the next click", async () => {
+    const { white, black } = await startChat();
+    const root = mount(black);
+    pointer(sq(root, "e7"), "pointerdown", 0, 0);
+    pointer(sq(root, "e7"), "pointerup", 0, 0);
+    await play({ white, black }, "e2e4");
+    sq(root, "e7").click();
+    expect(sq(root, "e7").classList.contains("selected")).toBe(true);
   });
 
   it("selects nothing on the contact's turn", async () => {
@@ -290,11 +344,14 @@ describe("rendering", () => {
     await play({ white, black }, "e2e4");
     const root = mount(white);
     const touched = new Set<string>();
+    const boardChanges: string[] = [];
+    const board = root.querySelector(".board")!;
     const observer = new MutationObserver((records) => {
       for (const r of records) {
         const square = (r.target instanceof Element ? r.target : r.target.parentElement)?.closest<HTMLElement>(".sq")?.dataset.square;
         if (square) touched.add(square);
-        else if (r.target === root.querySelector(".board") || (r.target as Element).classList?.contains("rank")) touched.add("<board>");
+        // The board itself or a row: only the board's class (its lock) may change; a row never re-takes its squares.
+        else boardChanges.push(r.type === "attributes" && r.target === board ? `board ${r.attributeName}` : `${r.type} on ${(r.target as Element).className}`);
       }
     });
     observer.observe(root.querySelector(".board")!, { attributes: true, childList: true, subtree: true, characterData: true });
@@ -303,8 +360,8 @@ describe("rendering", () => {
     await tick();
     observer.disconnect();
     // e7 and e5 (the move), e2 and e4 (no longer the last move); and the board's own lock, since it is white's turn.
-    touched.delete("<board>");
     expect([...touched].sort()).toEqual(["e2", "e4", "e5", "e7"]);
+    expect(boardChanges.every((c) => c === "board class"), boardChanges.join("; ")).toBe(true);
   });
 
   it("changes the piece set without changing what a square reads", async () => {

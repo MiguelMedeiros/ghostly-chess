@@ -6,6 +6,11 @@
  * panel stands beside the board when that leaves the board at least as big (a wide window), and below it otherwise (a
  * phone, Desktop's 560x640 chat-app window), where the moves are one scrolling row and the controls a bar.
  *
+ * Below the board, the board is sized from the panel's reserved height (NARROW_PANEL), never from what the panel holds
+ * at the moment: a draw offer, a notice or the first move must not resize the board under a finger. The reserve holds
+ * the status, the side, the move row, one row of controls and one notice line; the contact's draw offer floats over
+ * the move row and the controls instead of taking a row of its own.
+ *
  * Stable for Ghostly's end-to-end tests: the .status and .side texts, and the squares (see board.ts).
  */
 import type { ChessController, LastMove, Notice, View } from "./game.ts";
@@ -34,6 +39,11 @@ const PANEL_WIDTH = 240;
 const MIN_SIDE = 192;
 const PAGE_PAD = 16;
 const GAP = 8;
+/**
+ * The panel's reserved height below the board, in CSS pixels: what style.css gives each of its lines in the narrow
+ * layout (status 20, side 18, move row 30, controls 36, notices 18) and the 6 px between them.
+ */
+export const NARROW_PANEL = 20 + 18 + 30 + 36 + 18 + 5 * 6;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
   const node = document.createElement(tag);
@@ -77,6 +87,11 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   const moves = el("ol", "moves");
   moves.setAttribute("aria-label", t.moves);
   moves.tabIndex = 0;
+  // The contact's draw offer: a card of its own in the controls. Below the board it floats up over the controls and the
+  // move row instead of adding a row.
+  const offerCard = el("div", "offer-card");
+  offerCard.setAttribute("role", "group");
+  offerCard.hidden = true;
   const bar = el("div", "bar");
   const actions = el("div", "row actions");
   const tools = el("div", "row tools");
@@ -91,11 +106,13 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   settings.title = t.settings;
   settings.setAttribute("aria-label", t.settings);
   tools.append(flip, settings);
-  bar.append(actions, tools);
+  bar.append(offerCard, actions, tools);
+  const notices = el("div", "notices");
   const notice = el("p", "notice");
   notice.setAttribute("role", "alert");
   const info = el("p", "notice info");
-  panel.append(status, side, moves, bar, notice, info);
+  notices.append(notice, info);
+  panel.append(status, side, moves, bar, notices);
   const announcer = createAnnouncer();
   app.append(play, panel, announcer.element);
   root.replaceChildren(app);
@@ -199,17 +216,21 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
 
   function renderActions(view: View): void {
     const out: HTMLElement[] = [];
+    const offered = view.phase === "playing" && view.drawOffer === "peer";
+    const cardHadFocus = offerCard.contains(document.activeElement);
+    if (offered !== !offerCard.hidden) {
+      offerCard.replaceChildren(
+        ...(offered
+          ? [el("span", "offer", t.peerOffersDraw), button(t.accept, () => void game.answerDraw(true), "primary"), button(t.decline, () => void game.answerDraw(false))]
+          : []),
+      );
+      offerCard.hidden = !offered;
+    }
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.newGame, () => void game.newGame()));
     if (view.phase === "playing") {
-      if (view.drawOffer === "peer") {
-        out.push(el("span", "offer", t.peerOffersDraw));
-        out.push(button(t.accept, () => void game.answerDraw(true), "primary"));
-        out.push(button(t.decline, () => void game.answerDraw(false)));
-      } else {
-        const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw());
-        offer.disabled = view.drawOffer === "me" || !view.peerOpen;
-        out.push(offer);
-      }
+      const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw());
+      offer.disabled = view.drawOffer !== undefined || !view.peerOpen;
+      out.push(offer);
       out.push(
         button(resignArmed ? t.resignSure : t.resign, () => {
           if (!resignArmed) {
@@ -224,21 +245,19 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
       );
     } else resignArmed = false;
     if (view.phase === "over" || view.phase === "out-of-step") out.push(button(t.newGame, () => void game.newGame(), "primary"));
-    const hadFocus = actions.contains(document.activeElement);
+    const hadFocus = actions.contains(document.activeElement) || (cardHadFocus && offerCard.hidden);
     actions.replaceChildren(...out);
     if (hadFocus) (actions.querySelector<HTMLButtonElement>(".danger") ?? actions.querySelector<HTMLButtonElement>("button"))?.focus();
   }
 
   // ---------- layout ----------
 
-  let measuredPanel = 150;
   function fit(): void {
     const width = document.documentElement.clientWidth || window.innerWidth;
     const height = window.innerHeight;
     if (!width || !height) return;
     const strips = (top.offsetHeight || 28) + (bottom.offsetHeight || 28) + GAP;
-    if (app.dataset.layout === "narrow" && panel.offsetHeight) measuredPanel = panel.offsetHeight;
-    const { side: px, wide } = fitBoard(width, height, strips, measuredPanel);
+    const { side: px, wide } = fitBoard(width, height, strips, NARROW_PANEL);
     board.setSide(px);
     app.style.setProperty("--side", `${px}px`);
     const layout = wide ? "wide" : "narrow";
@@ -248,8 +267,6 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     }
   }
   fit();
-  const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => fit()) : null;
-  observer?.observe(panel);
   window.addEventListener("resize", fit);
 
   const offChange = game.subscribe(render);
@@ -273,7 +290,6 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     offChange();
     offPrefs();
     offNotice();
-    observer?.disconnect();
     window.removeEventListener("resize", fit);
     board.destroy();
     clearTimeout(noticeTimer);

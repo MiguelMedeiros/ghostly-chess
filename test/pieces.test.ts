@@ -5,11 +5,17 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ATTRIBUTES, generate, OUT, pieceTree, TAGS } from "../scripts/pieces.mjs";
+import { generate, OUT, pieceTree } from "../scripts/pieces.mjs";
 import { CBURNETT, type PieceTree } from "../src/generated/pieces.ts";
 import { glyph, pieceSvg } from "../src/pieces.ts";
 
 const root = join(import.meta.dirname, "..");
+// The allowlist, written out here rather than read from the generator: widening the generator's must fail this test.
+const ALLOWED_TAGS = ["svg", "g", "path", "circle"];
+const ALLOWED_ATTRIBUTES = [
+  "viewBox", "d", "fill", "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
+  "stroke-miterlimit", "opacity", "transform", "cx", "cy", "r",
+];
 const generated = readFileSync(join(root, OUT), "utf8");
 
 function walk(tree: PieceTree, visit: (tag: string, attributes: Record<string, string>) => void): void {
@@ -28,8 +34,8 @@ describe("the generated pieces", () => {
       expect(tree[0], key).toBe("svg");
       expect(tree[1].viewBox, key).toBe("0 0 45 45");
       walk(tree, (tag, attributes) => {
-        expect(TAGS, key).toContain(tag);
-        for (const name of Object.keys(attributes)) expect(ATTRIBUTES, `${key} ${tag}`).toContain(name);
+        expect(ALLOWED_TAGS, key).toContain(tag);
+        for (const name of Object.keys(attributes)) expect(ALLOWED_ATTRIBUTES, `${key} ${tag}`).toContain(name);
       });
     }
   });

@@ -74,8 +74,9 @@ describe("the Chess bundle", () => {
     expect(Buffer.byteLength(notice), "notice block").toBeLessThanOrEqual(8 * 1024);
     expect(Buffer.byteLength(readFileSync(join(root, "src/generated/pieces.ts"))), "pieces").toBeLessThanOrEqual(12 * 1024);
     const strings = ["src/strings.ts", "src/languages.ts"].reduce((n, f) => n + Buffer.byteLength(readFileSync(join(root, f))), 0);
-    expect(strings, "string tables").toBeLessThanOrEqual(56 * 1024);
-    expect(Buffer.byteLength(page), "page").toBeLessThanOrEqual(256 * 1024);
+    // Pinned near their size (about 27 KB and 122 KiB in 1.1.0): growing them is a choice made here, not by accident.
+    expect(strings, "string tables").toBeLessThanOrEqual(32 * 1024);
+    expect(Buffer.byteLength(page), "page").toBeLessThanOrEqual(136 * 1024);
   });
 
   it("parses no markup at run time: the pieces are built with createElementNS", () => {
