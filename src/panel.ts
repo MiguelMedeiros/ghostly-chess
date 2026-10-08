@@ -8,6 +8,7 @@
  * is one tab stop (the current move's button); Left/Right, Home/End and PageUp/PageDown move the review (ui.ts).
  * SAN and the move numbers are left to right in every language, so the list is too.
  */
+import { formatSpent } from "./clock.ts";
 import type { View } from "./game.ts";
 import { openDialog, type Dialog } from "./dialog.ts";
 import type { GameHistory, LastMove, Ply, Taken } from "./history.ts";
@@ -58,8 +59,11 @@ export function plyLabel(ply: Ply, index: number, t: Strings): string {
 
 export interface MoveList {
   readonly element: HTMLOListElement;
-  /** Shows the game's moves with `ply` (1 is white's first) as the current one; 0 is the start, no move current. */
-  render(record: GameHistory, ply: number): void;
+  /**
+   * Shows the game's moves with `ply` (1 is white's first) as the current one; 0 is the start, no move current.
+   * `spent` is the time each ply took, in a timed game (none for plies 0 and 1).
+   */
+  render(record: GameHistory, ply: number, spent?: readonly (number | undefined)[]): void;
 }
 
 export function createMoveList(t: Strings, pick: (ply: number) => void): MoveList {
@@ -102,9 +106,28 @@ export function createMoveList(t: Strings, pick: (ply: number) => void): MoveLis
     } else (list.lastElementChild ?? list).append(button);
   }
 
+  /** The time a ply took, after its button (and in its name), once it is known. */
+  function time(record: GameHistory, i: number, ms: number | undefined): void {
+    const button = buttons[i];
+    const text = ms === undefined ? "" : formatSpent(ms, document.documentElement.lang || undefined);
+    if ((button.dataset.spent ?? "") === text) return;
+    button.dataset.spent = text;
+    let span = button.nextElementSibling?.classList.contains("spent") ? (button.nextElementSibling as HTMLElement) : null;
+    if (!span && text) {
+      span = el("span", "spent");
+      span.setAttribute("aria-hidden", "true");
+      button.after(span);
+      button.parentElement?.classList.add("timed");
+    }
+    if (span) span.textContent = text;
+    const label = plyLabel(record.plies[i], i, t);
+    button.setAttribute("aria-label", text ? `${label}, ${text}` : label);
+  }
+
+
   return {
     element: list,
-    render(record, ply) {
+    render(record, ply, spent) {
       const shown = buttons.length;
       // The same game with more moves: only the new ones are added. Anything else (a new game) starts afresh.
       if (shown > record.plies.length || record.fens[shown] !== shownFen) {
@@ -114,6 +137,7 @@ export function createMoveList(t: Strings, pick: (ply: number) => void): MoveLis
         for (let i = 0; i < record.plies.length; i++) add(record, i);
       } else for (let i = shown; i < record.plies.length; i++) add(record, i);
       shownFen = record.fens[record.plies.length];
+      if (spent) for (let i = 0; i < buttons.length; i++) time(record, i, spent[i]);
       list.hidden = buttons.length === 0;
       const next = ply > 0 ? (buttons[ply - 1] ?? null) : null;
       const hadFocus = list.contains(document.activeElement);

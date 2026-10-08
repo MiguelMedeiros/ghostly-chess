@@ -3,10 +3,15 @@
  * TimeControl and Termination, a blank line, and the SAN movetext with move numbers, wrapped at 80 columns and ending
  * with the result.
  *
+ * A timed game has TimeControl "300+2" and a [%clk h:mm:ss] comment after each move from ply 2 (the mover's time
+ * after it); a game lost on time ends "time forfeit", one whose clocks disagreed "unterminated" (with "*").
+ *
  * Players are "?", the standard's unknown, until a later version knows their names. A game from Chess 1.0.2 has no
  * start date, so its Date is "????.??.??".
  */
+import { clkText } from "./clock.ts";
 import type { ChessController } from "./game.ts";
+import { tcText } from "./protocol.ts";
 import { openingOf, type Opening } from "./openings.ts";
 
 export type Result = "1-0" | "0-1" | "1/2-1/2" | "*";
@@ -23,6 +28,8 @@ export interface PgnGame {
   timeControl?: string;
   /** Overrides the default: "normal" for a finished game, "unterminated" for "*". */
   termination?: string;
+  /** Each ply's mover's time after it, in ms, for the %clk comments (plies 0 and 1 have none). */
+  clocks?: readonly number[];
 }
 
 const WIDTH = 80;
@@ -64,18 +71,25 @@ export function toPgn(game: PgnGame): string {
   game.sans.forEach((san, i) => {
     if (i % 2 === 0) tokens.push(`${i / 2 + 1}.`);
     tokens.push(san);
+    // One token, so a line never breaks inside the comment.
+    if (i >= 2 && game.clocks?.[i] !== undefined) tokens.push(`{[%clk ${clkText(game.clocks[i])}]}`);
   });
   tokens.push(game.result);
   return `${tags.map(([name, value]) => `[${name} "${escapeTag(value)}"]`).join("\n")}\n\n${wrap(tokens)}\n`;
 }
 
 /** The PGN of the game a controller holds: its moves, its result ("*" while it goes on), its date and opening. */
-export function pgnOfGame(game: Pick<ChessController, "record" | "view" | "startDate">): string {
+export function pgnOfGame(game: Pick<ChessController, "record" | "view" | "startDate"> & Partial<Pick<ChessController, "clockRecord">>): string {
   const record = game.record();
+  const end = game.view().end;
+  const clocks = game.clockRecord?.();
   return toPgn({
     sans: record.sans,
-    result: game.view().end?.result ?? "*",
+    result: end?.result ?? "*",
     date: game.startDate(),
     opening: openingOf(record.fens.slice(1)),
+    timeControl: clocks ? tcText(clocks.tc) : undefined,
+    clocks: clocks?.k,
+    termination: end?.why === "time" || end?.why === "timeMaterial" ? "time forfeit" : undefined,
   });
 }

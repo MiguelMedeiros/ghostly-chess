@@ -252,13 +252,13 @@ describe("invitations in version 2", () => {
     // Both proposals stand: Ana's own, waiting, and Bob's, shown.
     expect(ana.game.view().phase).toBe("invited");
     expect(ana.game.view().proposal).toEqual({ rematch: false });
-    expect(ana.game.view().invitation).toEqual({ tc: [300, 0], rematch: false, playable: false });
+    expect(ana.game.view().invitation).toEqual({ tc: [300, 0], rematch: false, playable: true });
     // A seek with other terms never completes: no reveal went.
     expect(kinds(a)).toEqual(["hello", "hello", "seek"]);
     // Bob seeks again and again: one card, the latest.
     for (const tc of [[600, 0], [180, 2]] as [number, number][]) a.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [], tc }));
     await settle(ana);
-    expect(ana.game.view().invitation).toEqual({ tc: [180, 2], rematch: false, playable: false });
+    expect(ana.game.view().invitation).toEqual({ tc: [180, 2], rematch: false, playable: true });
     expect(ana.notices).toEqual([]);
     expect(a.stored.has("game")).toBe(false);
     expect(savedFlip(ana).tc).toBeUndefined();
@@ -431,12 +431,12 @@ describe("a side out of step in version 2", () => {
 });
 
 describe("terms this build cannot play", () => {
-  it("shows a timed invitation from a contact with clocks, but never accepts it", async () => {
+  it("shows a timed invitation from a contact that names no clock, but never accepts it", async () => {
     const [a, b] = chatPair();
     const ana = await open(a);
     b.launch();
     await settle(ana);
-    a.inject(encodeMessage({ k: "hello", pv: 2, f: ["clock"] }));
+    a.inject(encodeMessage({ k: "hello", pv: 2, f: ["takeback"] }));
     await settle(ana);
     a.inject(encodeMessage({ k: "seek", c: commitment(newSalt()), a: [], tc: [60, 0] }));
     await settle(ana);

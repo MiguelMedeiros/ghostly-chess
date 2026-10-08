@@ -145,7 +145,7 @@ describe("negotiation on the mock broker", () => {
     await settle(ana);
     // The contact's hello (not an answer) is answered with re: 1, then the opening.
     expect(kinds(a.sent)).toEqual(["2:hello", "2:hello", "2:seek"]);
-    expect(a.sent[1]).toEqual({ p: "chess", v: 2, k: "hello", pv: 2, f: [], re: 1 });
+    expect(a.sent[1]).toEqual({ p: "chess", v: 2, k: "hello", pv: 2, f: ["clock"], re: 1 });
   });
 
   it("switches to version 1 on a v1 seek and answers it as 1.0.2 does: its own seek, then the reveal", async () => {
@@ -187,7 +187,7 @@ describe("negotiation on the mock broker", () => {
     expect(ana.view().mode).toBe("v2");
     // Its v1 toss becomes its invitation, now in the v2 envelope.
     expect(kinds(a.sent)).toEqual(["1:seek", "2:hello", "2:seek"]);
-    expect(ana.view().features).toEqual([]);
+    expect(ana.view().features).toEqual(["clock"]);
   });
 
   it("takes the contact's hello that came before the broker said it opened (a quick page), and opens in version 2", async () => {

@@ -144,6 +144,11 @@ export const en = {
   needsUpdate: "Your contact needs to update Chess (they have {version})",
   needsUpdateOld: "Your contact needs to update Chess",
   comingSoon: "Coming in a later version of Chess",
+  why_timeMaterial: "time against insufficient material",
+  notice_clockOff: "Your contact's clock looks off.",
+  peerSilent: "Your contact's Chess isn't answering",
+  pendingClaim: "Their time is running out. It ends when their Chess is back.",
+  say_secondsLeft: "{n} seconds left",
 };
 
 export type Strings = typeof en;

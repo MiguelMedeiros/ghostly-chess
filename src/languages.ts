@@ -137,6 +137,11 @@ export const pt: Strings = {
   needsUpdate: "Seu contato precisa atualizar o Xadrez (ele tem a {version})",
   needsUpdateOld: "Seu contato precisa atualizar o Xadrez",
   comingSoon: "Chega numa próxima versão do Xadrez",
+  why_timeMaterial: "tempo contra material insuficiente",
+  notice_clockOff: "O relógio do seu contato parece errado.",
+  peerSilent: "O Xadrez do seu contato não está respondendo",
+  pendingClaim: "O tempo do seu contato está acabando. A partida termina quando ele voltar ao Xadrez.",
+  say_secondsLeft: "Restam {n} segundos",
 };
 
 export const es: Strings = {
@@ -272,6 +277,11 @@ export const es: Strings = {
   needsUpdate: "Tu contacto tiene que actualizar Ajedrez (tiene la {version})",
   needsUpdateOld: "Tu contacto tiene que actualizar Ajedrez",
   comingSoon: "Llega en una próxima versión de Ajedrez",
+  why_timeMaterial: "tiempo contra material insuficiente",
+  notice_clockOff: "El reloj de tu contacto parece desajustado.",
+  peerSilent: "Tu contacto no responde en Ajedrez",
+  pendingClaim: "El tiempo de tu contacto se acaba. La partida termina cuando vuelva a Ajedrez.",
+  say_secondsLeft: "Quedan {n} segundos",
 };
 
 export const fr: Strings = {
@@ -407,6 +417,11 @@ export const fr: Strings = {
   needsUpdate: "Votre contact doit mettre à jour Échecs (il a la {version})",
   needsUpdateOld: "Votre contact doit mettre à jour Échecs",
   comingSoon: "Arrive dans une prochaine version d'Échecs",
+  why_timeMaterial: "temps contre matériel insuffisant",
+  notice_clockOff: "La pendule de votre contact semble décalée.",
+  peerSilent: "Échecs ne répond pas chez votre contact",
+  pendingClaim: "Le temps de votre contact s'épuise. La partie se termine à son retour sur Échecs.",
+  say_secondsLeft: "Il reste {n} secondes",
 };
 
 export const it: Strings = {
@@ -542,6 +557,11 @@ export const it: Strings = {
   needsUpdate: "Il tuo contatto deve aggiornare Scacchi (ha la {version})",
   needsUpdateOld: "Il tuo contatto deve aggiornare Scacchi",
   comingSoon: "Arriva in una prossima versione di Scacchi",
+  why_timeMaterial: "tempo contro materiale insufficiente",
+  notice_clockOff: "L'orologio del tuo contatto sembra sbagliato.",
+  peerSilent: "Scacchi non risponde dal tuo contatto",
+  pendingClaim: "Il tempo del tuo contatto sta finendo. La partita finisce al suo ritorno su Scacchi.",
+  say_secondsLeft: "Restano {n} secondi",
 };
 
 export const ja: Strings = {
@@ -677,6 +697,11 @@ export const ja: Strings = {
   needsUpdate: "相手がチェスを更新する必要があります（{version} を使用中）",
   needsUpdateOld: "相手がチェスを更新する必要があります",
   comingSoon: "今後のバージョンで使えるようになります",
+  why_timeMaterial: "時間切れ(相手の駒不足)",
+  notice_clockOff: "相手の時計がずれているようです。",
+  peerSilent: "相手のチェスが応答していません",
+  pendingClaim: "相手の時間がなくなりそうです。相手のチェスが戻ると対局が終わります。",
+  say_secondsLeft: "残り{n}秒",
 };
 
 export const zh: Strings = {
@@ -812,6 +837,11 @@ export const zh: Strings = {
   needsUpdate: "联系人需要更新国际象棋（对方是 {version} 版）",
   needsUpdateOld: "联系人需要更新国际象棋",
   comingSoon: "将在国际象棋的后续版本中提供",
+  why_timeMaterial: "超时（对方子力不足）",
+  notice_clockOff: "联系人的棋钟似乎不准。",
+  peerSilent: "联系人的国际象棋没有响应",
+  pendingClaim: "联系人的时间快用完了。对方的国际象棋回来时对局结束。",
+  say_secondsLeft: "还剩 {n} 秒",
 };
 
 export const ar: Strings = {
@@ -947,4 +977,9 @@ export const ar: Strings = {
   needsUpdate: "على جهة اتصالك تحديث الشطرنج (لديها {version})",
   needsUpdateOld: "على جهة اتصالك تحديث الشطرنج",
   comingSoon: "يأتي في إصدار لاحق من الشطرنج",
+  why_timeMaterial: "انتهاء الوقت مع قطع غير كافية للخصم",
+  notice_clockOff: "يبدو أن ساعة جهة اتصالك غير مضبوطة.",
+  peerSilent: "الشطرنج لا يستجيب لدى جهة اتصالك",
+  pendingClaim: "وقت جهة اتصالك ينفد. تنتهي اللعبة عندما يعود الشطرنج لديها.",
+  say_secondsLeft: "بقيت {n} ثانية",
 };
