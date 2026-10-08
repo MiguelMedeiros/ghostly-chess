@@ -999,11 +999,13 @@ export class ChessController {
   }
 
   /**
-   * Our hello. It carries our name (n) only to a contact that shows names: its hello named "names", or its version is
-   * NAMES_SINCE or later (so its first hello and a reload get it too). A 2.2.0 contact never gets it.
+   * Our hello. It carries our name (n) only to a contact that shows names. Once its hello is in (since it last
+   * opened), that is whether it named "names", and nothing else. Before that (our first hello and its retries, a
+   * reload) only its version can say: NAMES_SINCE or later. A 2.2.0 contact never gets it.
    */
   private hello(reply: boolean): Message {
-    const names = this.negotiator.peerFeatures.includes("names") || (compareVersions(this.negotiator.peerVersion, NAMES_SINCE) ?? -1) >= 0;
+    const { mode, peerFeatures, peerVersion } = this.negotiator;
+    const names = mode === "v2" ? peerFeatures.includes("names") : (compareVersions(peerVersion, NAMES_SINCE) ?? -1) >= 0;
     const n = names && this.own.includes("names") ? this.ownName : undefined;
     if (n) this.nameSent = true;
     return { k: "hello", pv: VERSION, f: [...this.own], ...(n ? { n } : {}), ...(reply ? { re: 1 as const } : {}) };
@@ -1109,7 +1111,8 @@ export class ChessController {
     }
     const { message, v } = parsed;
     const decision = this.negotiator.receive(v, message.k, message.k === "hello" ? message : undefined);
-    if (decision.changed) this.changed();
+    // A hello can bring a name or other features with the mode unchanged: the page is drawn again.
+    if (decision.changed || message.k === "hello") this.changed();
     // An answer held back by the one-a-second limit takes its opening with it later, unless the mode just changed.
     const answered = decision.sendHello ? await this.sendHello(true) : false;
     if (message.k === "hello" && message.re) await this.sendName();

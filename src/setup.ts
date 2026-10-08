@@ -13,6 +13,7 @@
  * Alone there is no setup: New game starts an unlimited game at once.
  */
 import { PRESET_TCS } from "./clock.ts";
+import { fill } from "./panel.ts";
 import type { View } from "./game.ts";
 import type { TimeControl } from "./protocol.ts";
 import type { Strings } from "./strings.ts";
@@ -33,8 +34,6 @@ export function kindOf(tc: TimeControl | undefined): PresetKind {
   const total = tc[0] + 40 * tc[1];
   return total < 180 ? "bullet" : total < 600 ? "blitz" : total < 1800 ? "rapid" : "classical";
 }
-
-const fill = (template: string, values: Record<string, string | number>) => template.replace(/\{(\w+)\}/g, (_, k: string) => String(values[k] ?? ""));
 
 const kindWord = (kind: PresetKind, t: Strings) => t[`tc_${kind}`];
 

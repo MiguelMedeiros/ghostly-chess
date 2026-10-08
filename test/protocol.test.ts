@@ -141,10 +141,10 @@ describe("the message protocol", () => {
       { k: "sync", g, s, m: "", d: ["w", MAX_PLIES + 1] },
       { k: "sync", g, s, m: "", d: ["x", 0] },
       { k: "sync", g, s, m: "", tb: -1 },
-      // the name: a string of 48 code points or fewer
-      { k: "hello", pv: 2, f: [], n: "a".repeat(49) },
-      { k: "hello", pv: 2, f: [], n: "😀".repeat(49) },
+      // the name: a string (one over 48 code points is cut, not refused: see below)
       { k: "hello", pv: 2, f: [], n: 7 },
+      { k: "hello", pv: 2, f: [], n: ["Ana"] },
+      { k: "hello", pv: 2, f: [], n: null },
       // the features: at most 16 names of [a-z-], each 16 characters or fewer
       { k: "hello", pv: 2, f: Array.from({ length: 17 }, (_, i) => `f${"abcdefghijklmnopq"[i]}`) },
       { k: "hello", pv: 2, f: ["Clock"] },
@@ -174,6 +174,16 @@ describe("the message protocol", () => {
       message: { k: "hello", pv: 2, f: ["clock", "later-thing"], n: "Ana Silva" },
     });
     expect(parseMessage({ p: "chess", v: 2, k: "hello", pv: 3, f: [], n: "\u200b" })).toEqual({ ok: true, v: 2, message: { k: "hello", pv: 3, f: [] } });
+  });
+
+  it("cuts a hello's name over 48 code points instead of refusing the hello", () => {
+    // A display field never stops two sides from pairing: a later Chess may allow longer names.
+    const hello = (n: string) => parseMessage({ p: "chess", v: 2, k: "hello", pv: 2, f: [], n });
+    expect(hello("a".repeat(49))).toEqual({ ok: true, v: 2, message: { k: "hello", pv: 2, f: [], n: "a".repeat(48) } });
+    expect(hello("😀".repeat(49))).toEqual({ ok: true, v: 2, message: { k: "hello", pv: 2, f: [], n: "😀".repeat(48) } });
+    expect(hello(`${"a".repeat(47)} ${"b".repeat(4000)}`)).toEqual({ ok: true, v: 2, message: { k: "hello", pv: 2, f: [], n: "a".repeat(47) } });
+    // The frame's own cap still holds.
+    expect(hello("a".repeat(17000))).toEqual({ ok: false, reason: "too-big" });
   });
 
   it("keeps a hello's re: 1 (an answer), and refuses any other re", () => {

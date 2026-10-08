@@ -62,7 +62,8 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .play { display: flex; flex-direction: column; gap: 4px; width: var(--side); }
 .strip { display: flex; align-items: center; gap: 8px; height: 28px; font-size: 14px; font-weight: 600; color: var(--muted); }
 .strip.to-move { color: var(--fg); }
-.strip .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A long name gives way first, down to its ellipsis: the pieces taken and the lead stay in sight. */
+.strip .name { flex: 0 1000 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The pieces a side took, beside its name, and its lead in material: small, overlapping when of a kind. */
 .taken { display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 0; overflow: hidden; line-height: 1; }
 .cap { flex: none; display: inline-flex; width: 18px; height: 18px; }

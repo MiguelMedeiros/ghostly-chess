@@ -51,7 +51,7 @@ import { OWN_FEATURES } from "./game.ts";
 import type { GameHistory, LastMove } from "./history.ts";
 import { initials } from "./names.ts";
 import { MAX_PLY, openingOf, type Opening } from "./openings.ts";
-import { createGameOver, createMoveList, createReviewBar, moveWords, openPgnDialog, renderOpening, takenNode } from "./panel.ts";
+import { createGameOver, createMoveList, createReviewBar, fill, moveWords, openPgnDialog, renderOpening, takenNode } from "./panel.ts";
 import { pgnOfGame } from "./pgn.ts";
 import { SVG_NS } from "./pieces.ts";
 import { PrefsStore } from "./prefs.ts";
@@ -91,8 +91,6 @@ const GAP = 8;
  * them.
  */
 export const NARROW_PANEL = 20 + 18 + 16 + 30 + 32 + 36 + 18 + 7 * 6;
-
-const fill = (template: string, values: Record<string, string>) => template.replace(/\{(\w+)\}/g, (_, k: string) => values[k] ?? "");
 
 /** The standing line's words for a view, if any: see the module comment. */
 export function standingText(view: View, t: Strings): { text: string; details: boolean } | null {
@@ -291,6 +289,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const silent = Boolean(view.peerSilent && view.me && colour !== view.me);
     const label = el("span", "name", name);
     label.dir = "auto";
+    // With a name shown, a screen reader still hears whose strip it is ("You", "Your contact"): two players can share a name.
+    const whose = known ? el("span", "sr-only", mine ? t.you : t.contact) : "";
     const taken = record.taken(at)[colour];
     const material = record.material(at);
     const set = prefs.get().pieces;
@@ -299,7 +299,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     node.dataset.key = key;
     node.classList.toggle("to-move", view.turn === colour && !view.end && view.phase !== "toss");
     node.classList.toggle("silent", silent);
-    node.replaceChildren(dot, label, takenNode(colour, taken, material, set, t), clockOf.get(node)!);
+    node.replaceChildren(dot, whose, label, takenNode(colour, taken, material, set, t), clockOf.get(node)!);
   }
 
   // ---------- clocks ----------

@@ -1,6 +1,6 @@
 // Players' names in real browsers (Chess 2.3.0): each strip shows the player's name beside a disc with its initials,
 // the contact's name comes from its hello, markup in a name stays text, and a long name never pushes the clock off a
-// 320 px phone. SHOTS=<dir> also saves screenshots of both pages there.
+// 320 px phone nor hides the pieces taken. SHOTS=<dir> also saves screenshots of both pages there.
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { openSide, type Side } from "./harness.ts";
@@ -59,6 +59,72 @@ for (const size of [
     if (process.env.SHOTS) {
       for (const [who, side] of [["ana", ana], ["bob", bob]] as const) {
         await side.page.screenshot({ path: join(process.env.SHOTS, `names-${size.width}-${who}-${test.info().project.name}.png`) });
+      }
+    }
+    for (const side of [ana, bob]) await side.context.close();
+  });
+}
+
+// 21 plies with 12 captures: White ends with eight pieces taken and a lead of 18, Black with four.
+const CAPTURES = "e2e4 d7d5 e4d5 d8d5 b1c3 d5g2 f1g2 g8f6 g2b7 c8b7 g1f3 b7f3 d1f3 b8c6 f3c6 f6d7 c6a8 d7b8 a8b8 e8d7 b8a7".split(" ");
+
+for (const width of [320, 375]) {
+  test(`keeps the pieces taken and the lead in sight beside two long names, at ${width} px`, async ({ browser }) => {
+    const sides = new Map<string, Side>();
+    const contextOptions = { viewport: { width, height: 568 } };
+    const ana = await openSide(browser, { name: "ana", sides, contextOptions, version: "2.3.0", displayName: LONG });
+    const bob = await openSide(browser, { name: "bob", sides, contextOptions, version: "2.3.0", displayName: LONG });
+    await ana.frame.locator('.setup .preset[data-tc="180+2"]').click();
+    await ana.frame.locator(".setup .invite-btn").click();
+    await bob.frame.locator(".invitation .accept-invite").click();
+    for (const side of [ana, bob]) await expect(side.frame.locator(".side")).toHaveText(/^You play (white|black)$/);
+    const anaWhite = (await ana.frame.locator(".side").textContent()) === "You play white";
+    const [white, black] = anaWhite ? [ana, bob] : [bob, ana];
+    for (const [i, uci] of CAPTURES.entries()) {
+      const mover = i % 2 === 0 ? white : black;
+      await expect(mover.frame.locator(".status")).toHaveText(/^Your move/);
+      await click(mover, uci.slice(0, 2), uci.slice(2, 4));
+    }
+    await expect(black.frame.locator(".status")).toHaveText(/^Your move/);
+
+    for (const side of [ana, bob]) {
+      const caps: number[] = [];
+      for (const where of ["top", "bottom"]) {
+        const strip = side.frame.locator(`.strip.${where}`);
+        const box = (await strip.boundingBox())!;
+        // Every piece taken is drawn in full: the long name gave way, not the pieces.
+        const taken = await strip.locator(".taken").evaluate((node) => ({ scroll: node.scrollWidth, client: node.clientWidth, caps: node.querySelectorAll(".cap").length }));
+        expect(taken.scroll, `${where} .taken`).toBeLessThanOrEqual(taken.client);
+        caps.push(taken.caps);
+        for (const part of [".taken", ".clock", ".dot", ".name"]) {
+          const inner = (await strip.locator(part).boundingBox())!;
+          expect(inner.x, `${where} ${part}`).toBeGreaterThanOrEqual(box.x - 0.5);
+          expect(inner.x + inner.width, `${where} ${part}`).toBeLessThanOrEqual(box.x + box.width + 0.5);
+        }
+        // The name is still there, cut with an ellipsis.
+        const name = await strip.locator(".name").evaluate((node) => ({ scroll: node.scrollWidth, client: node.clientWidth }));
+        expect(name.client, `${where} .name`).toBeGreaterThanOrEqual(12);
+        expect(name.scroll, `${where} .name`).toBeGreaterThan(name.client);
+      }
+      expect(caps.sort()).toEqual([4, 8]);
+      // The lead in material, at the end of the pieces of the side that is ahead, inside its strip.
+      const lead = side.frame.locator(".strip .lead");
+      await expect(lead).toHaveText("+18");
+      const edges = await lead.evaluate((node) => {
+        const of = (e: Element) => (({ left, right }) => ({ left, right }))(e.getBoundingClientRect());
+        return { lead: of(node), taken: of(node.closest(".taken")!), strip: of(node.closest(".strip")!) };
+      });
+      expect(edges.lead.right - edges.lead.left).toBeGreaterThan(8);
+      for (const outer of [edges.taken, edges.strip]) {
+        expect(edges.lead.left).toBeGreaterThanOrEqual(outer.left - 0.5);
+        expect(edges.lead.right).toBeLessThanOrEqual(outer.right + 0.5);
+      }
+      const overflow = await side.frame.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    }
+    if (process.env.SHOTS) {
+      for (const [who, side] of [["ana", ana], ["bob", bob]] as const) {
+        await side.page.screenshot({ path: join(process.env.SHOTS, `names-captures-${width}-${who}-${test.info().project.name}.png`) });
       }
     }
     for (const side of [ana, bob]) await side.context.close();

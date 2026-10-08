@@ -1,14 +1,16 @@
 // This build against the published Chess 1.0.2 page (fixtures/chess-1.0.2.html, checked against the digest it was
 // published with), in real browsers, through the harness's Node relay: 1.0.2 tosses by itself, this build answers in
-// version 1, and a short game ends the same on both boards. It also opens the protocol 2 new-game panel and
-// invitation between two of today's pages.
+// version 1, and a short game ends the same on both boards. It also plays against the Chess 2.2.0 page
+// (fixtures/chess-2.2.0.html, a build of commit 9d903fef7), which must never be sent a name, and opens the protocol 2
+// new-game panel and invitation between two of today's pages.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { chess102Page, openSide, type Side } from "./harness.ts";
+import { chess102Page, chess220Page, openSide, type Relay, type Side } from "./harness.ts";
 
 const CHESS_102_DIGEST = "l5ozbABlwoZn7MBgzaQniVWT4shgPI10A_0Bi-fZENE";
+const CHESS_220_DIGEST = "pcTeVK9fRcGGezOkheBEEMFBZ3An1cTiBXyQf4dbj-I";
 
 async function click(side: Side, from: string, to: string): Promise<void> {
   await side.frame.locator(`[data-square="${from}"]`).click();
@@ -40,6 +42,69 @@ test("plays Scholar's mate against the published Chess 1.0.2", async ({ browser 
   await expect(old.frame.locator(".notice")).not.toHaveText(/newer/);
   for (const side of [old, now]) await side.context.close();
 });
+
+// Chess 2.2.0 names no "names": this build, with a name to give, never sends it one, whoever opens first and however
+// often the two sessions come back. Every frame between the two pages is recorded by the relay.
+for (const first of ["new", "old"] as const) {
+  test(`never sends its name to Chess 2.2.0, and plays on with it (the ${first} side opens first)`, async ({ browser }) => {
+    const fixture = readFileSync(join(import.meta.dirname, "fixtures/chess-2.2.0.html"));
+    expect(createHash("sha256").update(fixture).digest("base64url")).toBe(CHESS_220_DIGEST);
+
+    const sides = new Map<string, Side>();
+    const frames: { from: string; data: Record<string, unknown> }[] = [];
+    const relay: Relay = { latency: 0, drop: (from, data) => (frames.push({ from, data: data as Record<string, unknown> }), false) };
+    const openNew = () => openSide(browser, { name: "new", sides, relay, version: "2.3.0", displayName: "Ana Silva" });
+    const openOld = () => openSide(browser, { name: "old", sides, relay, version: "2.2.0", html: chess220Page(), displayName: "Bob" });
+    const now = first === "new" ? await openNew() : undefined;
+    const old = await openOld();
+    const ana = now ?? (await openNew());
+    await ana.frame.locator(".setup .invite-btn").click();
+    await old.frame.locator(".invitation .accept-invite").click();
+    for (const side of [ana, old]) await expect(side.frame.locator(".side")).toHaveText(/^You play (white|black)$/);
+    const anaWhite = (await ana.frame.locator(".side").textContent()) === "You play white";
+    const [white, black] = anaWhite ? [ana, old] : [old, ana];
+    await click(white, "e2", "e4");
+    await expect(black.frame.locator(".status")).toHaveText(/^Your move/);
+    await click(black, "e7", "e5");
+    await expect(white.frame.locator(".status")).toHaveText(/^Your move/);
+
+    // Both sides hear the other close and open again (a session that came back), twice: hellos go again each time.
+    const peerEvent = (side: Side, event: unknown) => side.frame.evaluate((e) => (window as unknown as { __peerEvent: (e: unknown) => void }).__peerEvent(e), event);
+    for (let i = 1; i <= 2; i++) {
+      const before = frames.filter((f) => f.from === "new" && f.data.k === "hello").length;
+      await peerEvent(ana, { open: false });
+      await peerEvent(old, { open: false });
+      await peerEvent(ana, { open: true, version: "2.2.0" });
+      await peerEvent(old, { open: true, version: "2.3.0" });
+      await expect.poll(() => frames.filter((f) => f.from === "new" && f.data.k === "hello").length).toBeGreaterThan(before);
+    }
+    await click(white, "g1", "f3");
+    await expect(black.frame.locator(".status")).toHaveText(/^Your move/);
+    await click(black, "b8", "c6");
+    await expect(white.frame.locator(".status")).toHaveText(/^Your move/);
+
+    // This build said hello several times, named "names" each time, and never gave its name: in no frame of any kind.
+    const hellos = frames.filter((f) => f.from === "new" && f.data.k === "hello");
+    expect(hellos.length).toBeGreaterThan(2);
+    for (const hello of hellos) {
+      expect(hello.data.f).toContain("names");
+      expect("n" in hello.data).toBe(false);
+    }
+    expect(frames.filter((f) => f.from === "new" && JSON.stringify(f.data).includes("Ana"))).toEqual([]);
+    // 2.2.0 names no "names" and sends no name: this build shows the words for it, and its own name.
+    for (const hello of frames.filter((f) => f.from === "old" && f.data.k === "hello")) {
+      expect(hello.data.f).not.toContain("names");
+      expect("n" in hello.data).toBe(false);
+    }
+    await expect(ana.frame.locator(".strip.top")).toHaveText("Your contact");
+    await expect(ana.frame.locator(".strip.bottom .name")).toHaveText("Ana Silva");
+    // 2.2.0 saw nothing it does not know.
+    await expect(old.frame.locator(".strip.top")).toHaveText("Your contact");
+    await expect(old.frame.locator(".strip.bottom")).toHaveText("You");
+    for (const side of [ana, old]) await expect(side.frame.locator(".notice:not(.info)")).toBeEmpty();
+    for (const side of [ana, old]) await side.context.close();
+  });
+}
 
 test("invites from the new-game panel, and the contact accepts the card", async ({ browser }) => {
   const sides = new Map<string, Side>();
