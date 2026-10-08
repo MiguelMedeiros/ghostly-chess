@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { Square } from "chess.js";
 import { ChessController, type Notice, type SavedFlip, type SavedGame } from "../src/game.ts";
+import { pgnOfGame } from "../src/pgn.ts";
 import { encodeMessage, encodeV1, MAX_MESSAGE_BYTES, speaksV2, type Envelope, type Message } from "../src/protocol.ts";
 import { commitment, deal, deal2, newSalt } from "../src/toss.ts";
 import { chatPair, MockBroker } from "./mockBroker.ts";
@@ -851,6 +852,10 @@ describe("abort", () => {
       expect(side.game.view().phase).toBe("over");
       expect(saved(side).x).toEqual({ why: "aborted" });
       expect(side.notices).toEqual([]);
+      const pgn = pgnOfGame(side.game);
+      expect(pgn).toContain('[Result "*"]');
+      expect(pgn).toContain('[Termination "abandoned"]');
+      expect(pgn.trim().endsWith("1. e4 *")).toBe(true);
     }
     const late = await start();
     await play(late, "e2e4", "e7e5");

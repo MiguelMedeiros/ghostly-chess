@@ -14,8 +14,11 @@
  * Below the board, the board is sized from the panel's reserved height (NARROW_PANEL), never from what the panel holds
  * at the moment: a draw offer, a notice, the opening's name or the first move must not resize the board under a
  * finger. The reserve holds the status, the side, the opening, the move row, the review bar, one row of controls and
- * one notice line; the contact's draw offer floats over the move row and the controls instead of taking a row of its
- * own, and the game-over card sits on the board.
+ * one notice line; the contact's draw offer or takeback ask floats over the move row and the controls instead of
+ * taking a row of its own, and the game-over card (with Rematch in a chat) sits on the board.
+ *
+ * The controls: ↶ (take back, an icon so they stay one row), Offer draw, and Resign, which asks in a dialog; before
+ * ply 2, Abort replaces Resign. A control whose feature the contact's Chess lacks is off, its title saying why.
  *
  * Keys: Left/Right step the review and Home/End go to its ends when focus is outside the board (the board keeps the
  * arrows for its squares); PageUp/PageDown step it from anywhere. A dialog keeps its keys.
@@ -198,8 +201,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   const opening = el("p", "opening");
   const moves = createMoveList(t, (ply) => review.go(ply));
   const reviewBar = createReviewBar(t, review, () => toMoves());
-  // The contact's draw offer: a card of its own in the controls. Below the board it floats up over the controls and the
-  // move row instead of adding a row.
+  // The contact's draw offer or takeback ask: a card of its own in the controls. Below the board it floats up over the
+  // controls and the move row instead of adding a row.
   const offerCard = el("div", "offer-card");
   offerCard.setAttribute("role", "group");
   offerCard.hidden = true;

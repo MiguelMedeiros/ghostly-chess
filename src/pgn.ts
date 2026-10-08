@@ -4,7 +4,8 @@
  * with the result.
  *
  * A timed game has TimeControl "300+2" and a [%clk h:mm:ss] comment after each move from ply 2 (the mover's time
- * after it); a game lost on time ends "time forfeit", one whose clocks disagreed "unterminated" (with "*").
+ * after it); a game lost on time ends "time forfeit", one whose clocks disagreed "unterminated" and an aborted one
+ * "abandoned" (both with "*").
  *
  * Players are "?", the standard's unknown, until a later version knows their names. A game from Chess 1.0.2 has no
  * start date, so its Date is "????.??.??".
@@ -90,6 +91,6 @@ export function pgnOfGame(game: Pick<ChessController, "record" | "view" | "start
     opening: openingOf(record.fens.slice(1)),
     timeControl: clocks ? tcText(clocks.tc) : undefined,
     clocks: clocks?.k,
-    termination: end?.why === "time" || end?.why === "timeMaterial" ? "time forfeit" : undefined,
+    termination: end?.why === "time" || end?.why === "timeMaterial" ? "time forfeit" : end?.why === "aborted" ? "abandoned" : undefined,
   });
 }
