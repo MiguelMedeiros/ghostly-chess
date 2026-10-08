@@ -187,8 +187,7 @@ describe("invitations in version 2", () => {
     for (const side of [ana, bob]) {
       expect(side.game.view().phase).toBe("setup");
       expect(side.game.view().mode).toBe("v2");
-      // Hellos only (a side opened twice, as the mock broker's early peer event makes it, answers once more).
-      expect(new Set(kinds(side.broker))).toEqual(new Set(["hello"]));
+      expect(kinds(side.broker)).toEqual(["hello"]);
     }
   });
 

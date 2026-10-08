@@ -10,7 +10,8 @@
  * - The effective features are the intersection of both hellos' lists.
  * - A hello received in version 2 is answered with ours only when this side has sent no hello since the last one it
  *   received. So a side that re-opened (a second open event, a reload the other side did not see close) and is
- *   waiting again gets an answer, and two hellos never answer each other forever.
+ *   waiting again gets an answer, and two hellos never answer each other forever. Beyond that, as with 1.0.2's own
+ *   opening, it relies on the broker telling each side when the other opens Chess.
  *
  * No nudge goes to a version 1 peer: Ghostly checks for app updates itself, and a v2 frame would make 1.0.2 show
  * "Update to keep playing" although play goes on.

@@ -34,7 +34,7 @@ export class MockBroker implements MiniAppApi {
 
   constructor(
     readonly name: string,
-    readonly version = "2.0.0",
+    public version = "2.0.0",
     readonly inChat = true,
   ) {}
 
@@ -115,8 +115,12 @@ export class MockBroker implements MiniAppApi {
     });
   }
 
-  /** The contact's app opened or closed, as the broker says it (tests may say it at a chosen moment). */
+  /**
+   * The contact's app opened or closed, as the broker says it (tests may say it at a chosen moment). An app that is
+   * not open gets no event: it learns who is open from context() when it starts.
+   */
   emitPeer(event: MiniAppPeerEvent): void {
+    if (!this.isOpen) return;
     this.inFlight++;
     this.incoming = this.incoming.then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
