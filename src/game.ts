@@ -55,8 +55,11 @@ import { historyOf, plyOf, type GameHistory, type LastMove } from "./history.ts"
 import type { MiniAppApi, MiniAppJson, MiniAppPeerEvent } from "./vendor/miniApp.ts";
 import { Negotiator, type Mode } from "./negotiate.ts";
 import {
+  cleanName,
+  compareVersions,
   encodeMessage,
   MAX_PLIES,
+  NAMES_SINCE,
   parseMessage,
   sameTerms,
   UCI,
@@ -80,7 +83,7 @@ export type { SavedFlip, SavedGame, SavedPrev };
  * The features this build implements and names in its hello. The protocol knows five (FEATURE_NAMES); a build names
  * only what it does, so a later Chess never sends this one a clock or a takeback it cannot run.
  */
-export const OWN_FEATURES: readonly Feature[] = ["clock", "takeback", "rematch", "abort"];
+export const OWN_FEATURES: readonly Feature[] = ["clock", "takeback", "rematch", "abort", "names"];
 
 /**
  * A value as the broker takes it: strict JSON, made by a round trip through JSON. The broker refuses a value with an
@@ -176,6 +179,10 @@ export interface View {
   peerVersion?: string;
   /** The features both sides named. */
   features: string[];
+  /** This side's display name in this chat (the `name` permission), cleaned. */
+  ownName?: string;
+  /** The contact's display name, from its hello, while both named "names". */
+  peerName?: string;
   /**
    * The contact's latest invitation, waiting for Accept or Decline. `playable` is false when its terms need a feature
    * both sides did not name (a clock, a rematch): Accept is then off.
@@ -357,6 +364,10 @@ export class ChessController {
   private readonly negotiator: Negotiator;
   private inChat = false;
   private peerOpen = false;
+  /** This side's display name, cleaned: only with the `name` permission. */
+  private ownName: string | undefined;
+  /** Our name went in a hello since the contact last opened. */
+  private nameSent = false;
   private phaseLoaded = false;
   private game: SavedGame | null = null;
   private flip: SavedFlip | null = null;
@@ -463,6 +474,7 @@ export class ChessController {
   async start(): Promise<void> {
     const context = await this.api.context();
     this.inChat = context.inChat;
+    this.ownName = (typeof context.name === "string" && cleanName(context.name)) || undefined;
     this.peerOpen = context.peer !== null;
     if (this.inChat) {
       this.game = readGame(await this.api.storage.get(KEY_GAME));
@@ -578,6 +590,8 @@ export class ChessController {
       features: this.negotiator.features,
     };
     if (this.negotiator.peerVersion) view.peerVersion = this.negotiator.peerVersion;
+    if (this.ownName) view.ownName = this.ownName;
+    if (this.has("names") && this.negotiator.peerName) view.peerName = this.negotiator.peerName;
     if (this.invitation && this.peerOpen) view.invitation = { ...termsOf(this.invitation), rematch: Boolean(this.invitation.r), playable: this.playable(this.invitation) };
     if (this.flip && phase === "invited") view.proposal = { ...termsOf(this.flip), rematch: Boolean(this.flip.r) };
     if (this.game?.tc && (phase === "playing" || phase === "over")) view.tc = this.game.tc;
@@ -950,8 +964,10 @@ export class ChessController {
   /** The contact's Chess opened: decide the protocol, and open the conversation. */
   private async opened(version: string | undefined): Promise<void> {
     const { sendHello, reply, sendOpening } = this.negotiator.open(version);
+    this.nameSent = false;
     this.changed();
     if (sendHello) await this.sendHello(reply);
+    else await this.sendName();
     if (sendOpening) await this.openV2();
     else if (!sendHello) await this.openV1();
     this.scheduleHello();
@@ -970,7 +986,7 @@ export class ChessController {
           void this.enqueue(async () => {
             if (!this.peerOpen || this.negotiator.mode !== "v2") return;
             this.lastHelloAnswer = this.now();
-            await this.send({ k: "hello", pv: VERSION, f: [...this.own], re: 1 });
+            await this.send(this.hello(true));
             await this.openV2();
           });
         }, wait);
@@ -978,8 +994,29 @@ export class ChessController {
       }
       this.lastHelloAnswer = this.now();
     }
-    await this.send({ k: "hello", pv: VERSION, f: [...this.own], ...(reply ? { re: 1 as const } : {}) });
+    await this.send(this.hello(reply));
     return true;
+  }
+
+  /**
+   * Our hello. It carries our name (n) only to a contact that shows names. Once its hello is in (since it last
+   * opened), that is whether it named "names", and nothing else. Before that (our first hello and its retries, a
+   * reload) only its version can say: NAMES_SINCE or later. A 2.2.0 contact never gets it.
+   */
+  private hello(reply: boolean): Message {
+    const { mode, peerFeatures, peerVersion } = this.negotiator;
+    const names = mode === "v2" ? peerFeatures.includes("names") : (compareVersions(peerVersion, NAMES_SINCE) ?? -1) >= 0;
+    const n = names && this.own.includes("names") ? this.ownName : undefined;
+    if (n) this.nameSent = true;
+    return { k: "hello", pv: VERSION, f: [...this.own], ...(n ? { n } : {}), ...(reply ? { re: 1 as const } : {}) };
+  }
+
+  /**
+   * The contact's hello named "names" but ours went without our name (its version said less): it goes now, as an
+   * answer (re: 1), which is never answered back.
+   */
+  private async sendName(): Promise<void> {
+    if (this.ownName && !this.nameSent && this.has("names")) await this.send(this.hello(true));
   }
 
   private clearHelloTimers(): void {
@@ -1074,9 +1111,11 @@ export class ChessController {
     }
     const { message, v } = parsed;
     const decision = this.negotiator.receive(v, message.k, message.k === "hello" ? message : undefined);
-    if (decision.changed) this.changed();
+    // A hello can bring a name or other features with the mode unchanged: the page is drawn again.
+    if (decision.changed || message.k === "hello") this.changed();
     // An answer held back by the one-a-second limit takes its opening with it later, unless the mode just changed.
     const answered = decision.sendHello ? await this.sendHello(true) : false;
+    if (message.k === "hello" && message.re) await this.sendName();
     if (decision.sendOpening && (answered || decision.changed)) await (this.negotiator.mode === "v1" ? this.openV1() : this.openV2());
     if (!decision.handle) return;
     // A version 1 frame about a dv:2 game cannot be: the two sides disagree on the protocol.

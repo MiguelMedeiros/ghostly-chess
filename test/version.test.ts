@@ -4,10 +4,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { compareVersions, PROTO2_SINCE } from "../src/protocol.ts";
+import { compareVersions, NAMES_SINCE, PROTO2_SINCE } from "../src/protocol.ts";
 
 const root = join(import.meta.dirname, "..");
-const read = (file: string) => JSON.parse(readFileSync(join(root, file), "utf8")) as { version: string; packages?: Record<string, { version?: string }> };
+const read = (file: string) =>
+  JSON.parse(readFileSync(join(root, file), "utf8")) as { version: string; packages?: Record<string, { version?: string }>; permissions?: string[] };
 
 describe("the version", () => {
   it("is the same in ghostly-app.json, package.json and package-lock.json", () => {
@@ -22,5 +23,17 @@ describe("the version", () => {
     expect(compareVersions(read("ghostly-app.json").version, PROTO2_SINCE)).toBeGreaterThanOrEqual(0);
     expect(compareVersions("1.0.2", PROTO2_SINCE)).toBe(-1);
     expect(compareVersions("1.2.0", PROTO2_SINCE)).toBe(-1);
+  });
+
+  it("is at least NAMES_SINCE, the version whose hello carries the name", () => {
+    expect(compareVersions(read("ghostly-app.json").version, NAMES_SINCE)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// Adding a permission makes every installed Chess wait for the person's consent before it updates (WISP 1200,
+// Permissions): the list changes only on purpose.
+describe("the manifest's permissions", () => {
+  it("are exactly chat and name", () => {
+    expect(read("ghostly-app.json").permissions).toEqual(["chat", "name"]);
   });
 });

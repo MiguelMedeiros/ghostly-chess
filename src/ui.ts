@@ -35,6 +35,10 @@
  * a timed game goes on, which flags, acks and notices silence; this side's clock turns red and the low-time sound
  * plays once at 20 s (10 s in bullet), and a screen reader hears 30 s and 10 s left.
  *
+ * Names (2.3.0): each strip shows its player's name (this side's own from context(), the contact's from its hello)
+ * beside a disc with the initials, or "You" / "Your contact" without one; the contact's moves are read aloud with its
+ * name. Names are text only (textContent).
+ *
  * Stable for Ghostly's end-to-end tests: the .status and .side texts, and the squares (see board.ts). .status keeps
  * 1.0.2's words, also while this side may still move with the contact away: the hint is a line of its own.
  */
@@ -45,8 +49,9 @@ import { Board } from "./board.ts";
 import { openDialog } from "./dialog.ts";
 import { OWN_FEATURES } from "./game.ts";
 import type { GameHistory, LastMove } from "./history.ts";
+import { initials } from "./names.ts";
 import { MAX_PLY, openingOf, type Opening } from "./openings.ts";
-import { createGameOver, createMoveList, createReviewBar, moveWords, openPgnDialog, renderOpening, takenNode } from "./panel.ts";
+import { createGameOver, createMoveList, createReviewBar, fill, moveWords, openPgnDialog, renderOpening, takenNode } from "./panel.ts";
 import { pgnOfGame } from "./pgn.ts";
 import { SVG_NS } from "./pieces.ts";
 import { PrefsStore } from "./prefs.ts";
@@ -86,8 +91,6 @@ const GAP = 8;
  * them.
  */
 export const NARROW_PANEL = 20 + 18 + 16 + 30 + 32 + 36 + 18 + 7 * 6;
-
-const fill = (template: string, values: Record<string, string>) => template.replace(/\{(\w+)\}/g, (_, k: string) => values[k] ?? "");
 
 /** The standing line's words for a view, if any: see the module comment. */
 export function standingText(view: View, t: Strings): { text: string; details: boolean } | null {
@@ -275,12 +278,19 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   let openingFor: { record: GameHistory; at: number; opening: Opening | undefined } | null = null;
 
   function strip(node: HTMLElement, colour: "w" | "b", view: View, record: GameHistory, at: number): void {
-    const name = view.phase === "alone" ? (colour === "w" ? t.whiteName : t.blackName) : view.me ? (colour === view.me ? t.you : t.contact) : node === bottom ? t.you : t.contact;
-    const dot = el("span", `dot ${view.me || view.phase === "alone" ? colour : "unknown"}`);
+    const mine = view.me ? colour === view.me : node === bottom;
+    // The person's own name, or the contact's from its hello; the words when there is none (no `name` permission).
+    const known = view.phase === "alone" ? undefined : mine ? view.ownName : view.peerName;
+    const name = view.phase === "alone" ? (colour === "w" ? t.whiteName : t.blackName) : known ?? (mine ? t.you : t.contact);
+    // The colour disc, with the initials when the name is known: there is no avatar API.
+    const dot = el("span", `dot ${view.me || view.phase === "alone" ? colour : "unknown"}`, known && initials(known));
     dot.setAttribute("aria-hidden", "true");
     // A timed game, the contact silent on its turn: its clock turns muted, and the standing line says why.
     const silent = Boolean(view.peerSilent && view.me && colour !== view.me);
     const label = el("span", "name", name);
+    label.dir = "auto";
+    // With a name shown, a screen reader still hears whose strip it is ("You", "Your contact"): two players can share a name.
+    const whose = known ? el("span", "sr-only", mine ? t.you : t.contact) : "";
     const taken = record.taken(at)[colour];
     const material = record.material(at);
     const set = prefs.get().pieces;
@@ -289,7 +299,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     node.dataset.key = key;
     node.classList.toggle("to-move", view.turn === colour && !view.end && view.phase !== "toss");
     node.classList.toggle("silent", silent);
-    node.replaceChildren(dot, label, takenNode(colour, taken, material, set, t), clockOf.get(node)!);
+    node.replaceChildren(dot, whose, label, takenNode(colour, taken, material, set, t), clockOf.get(node)!);
   }
 
   // ---------- clocks ----------
@@ -407,7 +417,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
 
   function announce(view: View): void {
     if (lastPlies >= 0 && view.plies === lastPlies + 1 && view.lastMove) {
-      const who = view.phase === "alone" ? (view.lastMove.colour === "w" ? t.whiteName : t.blackName) : view.lastMove.colour === view.me ? t.you : t.contact;
+      const who = view.phase === "alone" ? (view.lastMove.colour === "w" ? t.whiteName : t.blackName) : view.lastMove.colour === view.me ? t.you : (view.peerName ?? t.contact);
       announcer.say(sayMove(view.lastMove, who, view, t));
     }
     const end = view.end ? endText(view.end, view) : "";

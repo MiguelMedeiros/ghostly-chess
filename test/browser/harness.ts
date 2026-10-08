@@ -11,8 +11,8 @@
  *   sandbox forbids fails here too. Every CSP violation is recorded (window.__violations in the frame).
  *
  * Each side reports a Chess version (2.0.0 by default), as the client does in context() and in the contact's peer
- * events, and may load another page than the build: the published Chess 1.0.2 (fixtures/chess-1.0.2.html) plays
- * against this build through the same relay.
+ * events, and may load another page than the build: the published Chess 1.0.2 (fixtures/chess-1.0.2.html) and Chess
+ * 2.2.0 (fixtures/chess-2.2.0.html) play against this build through the same relay.
  *
  * Nothing leaves the machine: every URL is answered by page.route.
  */
@@ -51,6 +51,8 @@ interface BrokerOptions {
   locale: string;
   /** Install the broker only in the sandboxed child frame. */
   childOnly: boolean;
+  /** The person's display name, as context() gives it with the `name` permission. */
+  displayName?: string;
 }
 
 /** Runs in the page (or the frame) before Chess: the test broker. */
@@ -70,7 +72,7 @@ function installBroker(options: BrokerOptions): void {
   };
   w.__setPeer = (version: string | null) => (peer = version === null ? null : { version });
   w.ghostly = {
-    context: async () => ({ version: options.version, inChat: options.inChat, peer, theme: "light", locale: options.locale }),
+    context: async () => ({ version: options.version, inChat: options.inChat, peer, theme: "light", locale: options.locale, ...(options.displayName === undefined ? {} : { name: options.displayName }) }),
     file: async () => new ArrayBuffer(0),
     storage: {
       get: async (key: string) => (store.has(key) ? JSON.parse(store.get(key)!) : undefined),
@@ -96,6 +98,14 @@ function installBroker(options: BrokerOptions): void {
 /** The published Chess 1.0.2 page (checked against its digest in test/legacy.test.ts and compat.spec.ts). */
 export function chess102Page(): string {
   return readFileSync(join(import.meta.dirname, "fixtures/chess-1.0.2.html"), "utf8");
+}
+
+/**
+ * The Chess 2.2.0 page, built from commit 9d903fef7 (checked against its digest in test/legacy.test.ts and
+ * compat.spec.ts): the last version without the `names` feature.
+ */
+export function chess220Page(): string {
+  return readFileSync(join(import.meta.dirname, "fixtures/chess-2.2.0.html"), "utf8");
 }
 
 /** One side: its page and the frame Chess runs in. */
@@ -132,8 +142,10 @@ export async function openSide(
     locale?: string;
     /** The Chess version the client reports for this side (default "2.0.0"). */
     version?: string;
-    /** The page to load instead of the build (the published 1.0.2). */
+    /** The page to load instead of the build (the published 1.0.2, or 2.2.0). */
     html?: string;
+    /** The person's display name in context() (the `name` permission); none by default. */
+    displayName?: string;
   },
 ): Promise<Side> {
   const { name, mode = "top", inChat = true, version = "2.0.0" } = options;
@@ -167,7 +179,7 @@ export async function openSide(
     }, relay.latency);
     return true;
   });
-  await page.addInitScript(installBroker, { name, version, inChat, locale: options.locale ?? "en", childOnly: mode === "frame" } satisfies BrokerOptions);
+  await page.addInitScript(installBroker, { name, version, inChat, locale: options.locale ?? "en", childOnly: mode === "frame", displayName: options.displayName } satisfies BrokerOptions);
   for (const script of options.init ?? []) await page.addInitScript(script);
   sides.set(name, side);
   await page.goto(`${ORIGIN}/index.html`);

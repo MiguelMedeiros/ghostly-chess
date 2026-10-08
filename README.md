@@ -79,6 +79,7 @@ the same commit always gives the same bytes, so a build can be checked against a
 | `src/review.ts` | The review cursor the board is drawn from: the live game, or a past position |
 | `src/openings.ts`, `src/generated/openings.ts` | The opening's name, looked up by position (FNV-1a of the EPD), up to ply 36 |
 | `src/pgn.ts` | The game as PGN |
+| `src/names.ts` | Players' names: what is sent and shown, and the initials disc (cleaning is in `src/protocol.ts`) |
 | `src/sound.ts` | Sounds synthesized with Web Audio, started by the first click, pointerup or keydown (not Escape or a modifier) |
 | `assets/openings/` | The opening names from lichess-org/chess-openings (CC0-1.0), its legal text, and the one-line notice that ships |
 | `scripts/openings.mjs` | `npm run gen:openings`: the TSVs as a table of named positions (fails on a hash collision) |
@@ -91,6 +92,7 @@ the same commit always gives the same bytes, so a build can be checked against a
 | `test/link.ts` | The same on a virtual clock, with latency, drops, rewrites and held sessions, for the clock tests |
 | `test/legacy/1.0.2/` | The Chess 1.0.2 controller, byte for byte, that `test/compat.test.ts` plays against (see its README) |
 | `test/browser/fixtures/chess-1.0.2.html` | The published Chess 1.0.2 page, which `test/browser/compat.spec.ts` plays against |
+| `test/browser/fixtures/chess-2.2.0.html` | The Chess 2.2.0 page (a build of commit 9d903fef7), the last without names: the same spec checks that it is never sent one |
 | `ghostly-app.json` | The manifest, without `publisher`, `sequence` and `files` (the CLI writes those) |
 | `vite.config.ts` | The single-file build, with the license notices of what it bundles |
 
@@ -101,8 +103,13 @@ on 2.0.0 or later, and Chess 1.0.2's protocol, exactly, with an older one: the t
 untimed. Chess 2.1.0 adds the clocks (the `clock` feature): timed games need it on both sides, so a contact on 2.0.0
 or 1.0.2 is offered untimed games only, with the update hint. Chess 2.2.0 adds takebacks, rematches with colours
 swapped and abort (the `takeback`, `rematch` and `abort` features), draw offers that stand through their own side's
-move, and premoves (local, no feature); a contact on 2.1.0 or older sees none of it, and those controls say why. A game
-begun on 1.0.2 goes on after either side updates. `PROTO2_SINCE` in `src/protocol.ts` is the first
+move, and premoves (local, no feature); a contact on 2.1.0 or older sees none of it, and those controls say why. Chess
+2.3.0 shows the players' names (the `names` feature): each side sends its own display name in its hello, so it adds
+the `name` permission to the manifest, and every installed Chess asks the person before it updates to it (WISP 1200,
+Permissions). Someone who declines stays on the version they have, with no later updates: every later Chess asks for
+the permission too. That version plays on with 2.3.0 and never receives a name. Names need a Ghostly client that
+gives an app its person's name (`context().name`); on one that does not, 2.3.0 says "You" and "Your contact", as
+2.2.0 does. A game begun on 1.0.2 goes on after either side updates. `PROTO2_SINCE` in `src/protocol.ts` is the first
 version that speaks protocol 2, and `test/version.test.ts` keeps the manifest at or above it. See
 [docs/protocol.md](docs/protocol.md).
 

@@ -37,6 +37,11 @@ export const VERSION = 2;
 export const VERSION_V1 = 1;
 /** The first published Chess that speaks protocol 2: a peer below it gets version 1. */
 export const PROTO2_SINCE = "2.0.0";
+/**
+ * The first Chess that names "names": until a peer's own hello says what it names, one at or above this version gets
+ * this side's display name in a hello.
+ */
+export const NAMES_SINCE = "2.3.0";
 /** One message, serialized as UTF-8 JSON. Half the 32 KiB `paired-app` data cap, so there is room to spare. */
 export const MAX_MESSAGE_BYTES = 16 * 1024;
 /** Longest game kept and synced: 2000 plies of at most 5 bytes is about 12 KiB in a sync. Reaching it ends the game drawn. */
@@ -152,10 +157,18 @@ export function sameTerms(a: { tc?: TimeControl; r?: string }, b: { tc?: TimeCon
   return tcText(a.tc) === tcText(b.tc) && (a.r ?? "") === (b.r ?? "");
 }
 
-/** A display name made safe to show: no control or direction characters, one space at most, trimmed. */
+/**
+ * A display name made safe to show, the same on both sides (before it goes, and again on receipt): NFC, then no
+ * character of Unicode's "Other" classes (Cc and Cf: controls, bidi overrides and isolates, zero-width characters; Cs,
+ * a lone surrogate; Co and Cn, private use and unassigned) and no blank that is not a space (the Hangul fillers, the
+ * Braille blank, the object replacement character), one space at most, trimmed, and cut to MAX_NAME code points,
+ * never inside a surrogate pair. Empty when no letter, digit, punctuation or symbol is left: a name nobody could see.
+ * Shown with textContent only.
+ */
 export function cleanName(name: string): string {
-  // eslint-disable-next-line no-control-regex
-  return name.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, "").replace(/\s+/g, " ").trim();
+  const clean = name.normalize("NFC").replace(/[\p{C}\u115f\u1160\u3164\uffa0\u2800\ufffc]/gu, "").replace(/\s+/g, " ").trim();
+  const cut = [...clean].slice(0, MAX_NAME).join("").trim();
+  return /[\p{L}\p{N}\p{P}\p{S}]/u.test(cut) ? cut : "";
 }
 
 // ---------- writing ----------
@@ -314,7 +327,8 @@ function parseV2(v: Record<string, unknown>): Message | null {
       if (!Array.isArray(v.f) || v.f.length > MAX_FEATURES || !v.f.every((f) => typeof f === "string" && FEATURE.test(f))) return null;
       const message: Message = { k: "hello", pv: v.pv, f: [...new Set(v.f as string[])] };
       if (v.n !== undefined) {
-        if (typeof v.n !== "string" || [...v.n].length > MAX_NAME) return null;
+        if (typeof v.n !== "string") return null;
+        // Cleaned and cut here, never refused for its length: a display field must not stop two sides from pairing.
         const name = cleanName(v.n);
         if (name) message.n = name;
       }

@@ -38,8 +38,13 @@ export class MockBroker implements MiniAppApi {
     readonly inChat = true,
   ) {}
 
+  /** The person's display name in this chat, as context() gives it with the `name` permission; none without it. */
+  displayName: string | undefined;
+
   async context(): Promise<MiniAppContext> {
-    return { version: this.version, inChat: this.inChat, peer: this.peer?.isOpen ? { version: this.peer.version } : null };
+    const context: MiniAppContext = { version: this.version, inChat: this.inChat, peer: this.peer?.isOpen ? { version: this.peer.version } : null };
+    if (this.displayName !== undefined) context.name = this.displayName;
+    return context;
   }
 
   async file(): Promise<ArrayBuffer> {

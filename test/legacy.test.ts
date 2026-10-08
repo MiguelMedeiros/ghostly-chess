@@ -20,6 +20,9 @@ const PINNED: Record<string, string> = {
 /** The published Chess 1.0.2 page, as a signed bundle lists it (SHA-256, base64url). */
 export const CHESS_102_DIGEST = "l5ozbABlwoZn7MBgzaQniVWT4shgPI10A_0Bi-fZENE";
 
+/** The Chess 2.2.0 page, as `npm run digest` prints it for a build of commit 9d903fef7 (SHA-256, base64url). */
+export const CHESS_220_DIGEST = "pcTeVK9fRcGGezOkheBEEMFBZ3An1cTiBXyQf4dbj-I";
+
 describe("the frozen Chess 1.0.2", () => {
   it.each(Object.entries(PINNED))("keeps %s byte for byte", (path, digest) => {
     expect(sha256(path)).toBe(digest);
@@ -29,6 +32,12 @@ describe("the frozen Chess 1.0.2", () => {
     const page = readFileSync(join(root, "test/browser/fixtures/chess-1.0.2.html"));
     expect(page.length).toBe(81_896);
     expect(createHash("sha256").update(page).digest("base64url")).toBe(CHESS_102_DIGEST);
+  });
+
+  it("keeps the Chess 2.2.0 page, the last without names, as the browser fixture", () => {
+    const page = readFileSync(join(root, "test/browser/fixtures/chess-2.2.0.html"));
+    expect(page.length).toBe(259_355);
+    expect(createHash("sha256").update(page).digest("base64url")).toBe(CHESS_220_DIGEST);
   });
 
   it("runs on the chess.js it shipped with", () => {

@@ -35,12 +35,17 @@ function iconButton(className: string, text: string, label: string, run: () => v
   return b;
 }
 
+/**
+ * A template with its {keys} filled, in one pass: a value is never read again, so a contact's name that holds
+ * "{piece}" or "$&" is shown as it is.
+ */
+export const fill = (template: string, values: Record<string, string | number>) => template.replace(/\{(\w+)\}/g, (_, k: string) => String(values[k] ?? ""));
+
 /** A move in words: "knight takes on f6, check", after "{who}: ". */
 export function moveWords(move: LastMove, who: string, t: Strings, check: boolean, mate: boolean): string {
-  const piece = t[`piece_${move.piece}`];
   let text = move.castle === "k" ? t.say_castleK : move.castle === "q" ? t.say_castleQ : move.captured ? t.say_capture : t.say_move;
-  text = text.replace("{who}", who).replace("{piece}", piece).replace("{square}", move.to);
-  if (move.promotion) text += `, ${t.say_promote.replace("{piece}", t[`piece_${move.promotion}`])}`;
+  text = fill(text, { who, piece: t[`piece_${move.piece}`], square: move.to });
+  if (move.promotion) text += `, ${fill(t.say_promote, { piece: t[`piece_${move.promotion}`] })}`;
   if (mate) text += `, ${t.say_mate}`;
   else if (check) text += `, ${t.say_check}`;
   return text;
