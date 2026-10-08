@@ -5,6 +5,7 @@
 import type { MiniAppApi } from "./vendor/miniApp.ts";
 import { ChessController } from "./game.ts";
 import { pickLanguage, stringsFor } from "./strings.ts";
+import { PrefsStore } from "./prefs.ts";
 import { mountChess } from "./ui.ts";
 import "./style.css";
 
@@ -38,7 +39,10 @@ async function main(): Promise<void> {
   document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   const strings = stringsFor(language);
   document.title = strings.title;
-  mountChess(root, game, strings);
+  // The settings of this chat (the board's colours, its orientation...), read before the board is drawn.
+  const prefs = new PrefsStore(api);
+  await prefs.load();
+  mountChess(root, game, strings, prefs);
   try {
     await game.start();
   } catch (error) {

@@ -1,17 +1,20 @@
 /**
- * The board and its controls, drawn from the controller's view. Plain DOM, no framework.
+ * The page: the board (board.ts) between two player strips, and a panel with the status, the moves and the controls.
+ * Plain DOM, no framework.
  *
- * Keyboard: the board is one tab stop (a roving tabindex). Arrow keys move between squares as they are drawn, Home and
- * End go to the ends of a row, Enter or Space picks a piece and then its square, Escape lets go. Each square's label
- * says its name, what stands on it, and whether it is selected or a place to move.
+ * Layout: the board's side is the largest multiple of 8 px that fits, so its squares leave no sub-pixel seam. The
+ * panel stands beside the board when that leaves the board at least as big (a wide window), and below it otherwise (a
+ * phone, Desktop's 560x640 chat-app window), where the moves are one scrolling row and the controls a bar.
+ *
+ * Stable for Ghostly's end-to-end tests: the .status and .side texts, and the squares (see board.ts).
  */
-import type { Square } from "chess.js";
-import type { ChessController, Notice, View } from "./game.ts";
+import type { ChessController, LastMove, Notice, View } from "./game.ts";
+import { createAnnouncer } from "./announce.ts";
+import { Board } from "./board.ts";
+import { PrefsStore } from "./prefs.ts";
+import { openSettings } from "./settings.ts";
 import type { StringKey, Strings } from "./strings.ts";
 
-const FILES = "abcdefgh";
-// Solid glyphs for both sides (CSS colours them), each with U+FE0E so no platform draws the pawn as an emoji.
-const GLYPH: Record<string, string> = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const NOTICE_KEY: Record<Notice, StringKey> = {
   "invalid-move": "notice_invalidMove",
   "bad-message": "notice_badMessage",
@@ -23,6 +26,14 @@ const NOTICE_KEY: Record<Notice, StringKey> = {
   "peer-new-game": "notice_peerNewGame",
   "send-failed": "notice_sendFailed",
 };
+/** Notices that report what happened rather than a fault: they are announced politely, not as alerts. */
+const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game"]);
+
+/** The panel's width beside the board, and the smallest board side (24 px squares, WCAG 2.2's target size). */
+const PANEL_WIDTH = 240;
+const MIN_SIDE = 192;
+const PAGE_PAD = 16;
+const GAP = 8;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
   const node = document.createElement(tag);
@@ -31,99 +42,125 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 };
 
-export function mountChess(root: HTMLElement, game: ChessController, t: Strings): () => void {
+/** The board side and where the panel goes, for a window of width × height. */
+export function fitBoard(width: number, height: number, strips: number, panelBelow: number): { side: number; wide: boolean } {
+  const floor8 = (n: number) => Math.max(MIN_SIDE, Math.floor(n / 8) * 8);
+  const narrow = Math.min(width - PAGE_PAD, height - PAGE_PAD - strips - GAP - panelBelow);
+  const wide = Math.min(width - PAGE_PAD - GAP * 2 - PANEL_WIDTH, height - PAGE_PAD - strips);
+  if (wide >= MIN_SIDE && wide >= narrow) return { side: floor8(wide), wide: true };
+  return { side: floor8(Math.min(narrow, width - PAGE_PAD)), wide: false };
+}
+
+/** A move in words, for the live region: "Your contact: knight to f6, check". */
+export function sayMove(move: LastMove, who: string, view: View, t: Strings): string {
+  const piece = t[`piece_${move.piece}`];
+  let text =
+    move.castle === "k" ? t.say_castleK : move.castle === "q" ? t.say_castleQ : move.captured ? t.say_capture : t.say_move;
+  text = text.replace("{who}", who).replace("{piece}", piece).replace("{square}", move.to);
+  if (move.promotion) text += `, ${t.say_promote.replace("{piece}", t[`piece_${move.promotion}`])}`;
+  if (view.end?.why === "checkmate") text += `, ${t.say_mate}`;
+  else if (view.inCheck) text += `, ${t.say_check}`;
+  return text;
+}
+
+export function mountChess(root: HTMLElement, game: ChessController, t: Strings, prefs: PrefsStore = new PrefsStore(null)): () => void {
   const app = el("main", "app");
+  const play = el("div", "play");
+  const top = el("div", "strip top");
+  const bottom = el("div", "strip bottom");
+  const board = new Board(game, t, prefs);
+  play.append(top, board.element, bottom);
+
+  const panel = el("div", "panel");
   const status = el("p", "status");
-  status.setAttribute("role", "status");
   const side = el("p", "side");
-  const board = el("div", "board");
-  board.setAttribute("role", "grid");
-  board.setAttribute("aria-label", t.board);
-  // A chessboard is never mirrored: a1 stays at white's bottom left in a right-to-left language too (the page takes
-  // the language's direction, and the board's grid would follow it).
-  board.dir = "ltr";
-  const promote = el("div", "row promote");
-  promote.hidden = true;
+  const moves = el("ol", "moves");
+  moves.setAttribute("aria-label", t.moves);
+  moves.tabIndex = 0;
+  const bar = el("div", "bar");
   const actions = el("div", "row actions");
+  const tools = el("div", "row tools");
+  const flip = el("button", "act icon flip");
+  flip.type = "button";
+  flip.textContent = "⇅";
+  flip.title = t.flip;
+  flip.setAttribute("aria-label", t.flip);
+  const settings = el("button", "act icon settings-btn");
+  settings.type = "button";
+  settings.textContent = "⚙︎";
+  settings.title = t.settings;
+  settings.setAttribute("aria-label", t.settings);
+  tools.append(flip, settings);
+  bar.append(actions, tools);
   const notice = el("p", "notice");
   notice.setAttribute("role", "alert");
-  app.append(status, side, board, promote, actions, notice);
+  const info = el("p", "notice info");
+  panel.append(status, side, moves, bar, notice, info);
+  const announcer = createAnnouncer();
+  app.append(play, panel, announcer.element);
   root.replaceChildren(app);
 
-  const rows: HTMLDivElement[] = [];
-  const squares = new Map<Square, HTMLButtonElement>();
-  for (let r = 0; r < 8; r++) {
-    const row = el("div", "rank");
-    row.setAttribute("role", "row");
-    rows.push(row);
-    board.append(row);
-  }
-  for (let rank = 1; rank <= 8; rank++) {
-    for (const file of FILES) {
-      const square = `${file}${rank}` as Square;
-      const button = el("button", "sq");
-      button.type = "button";
-      button.setAttribute("role", "gridcell");
-      button.dataset.square = square;
-      button.classList.add((FILES.indexOf(file) + rank) % 2 === 0 ? "light" : "dark");
-      button.tabIndex = -1;
-      squares.set(square, button);
-    }
-  }
-
-  let selected: Square | null = null;
-  let focus: Square = "e2";
-  let pending: { from: Square; to: Square } | null = null;
   let resignArmed = false;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-  let flipped: boolean | null = null;
+  let lastPlies = -1;
+  let lastEnd = "";
+  let movesShown = -1;
 
-  /** Squares in drawing order, top row first. */
-  const layout = (black: boolean): Square[][] =>
-    Array.from({ length: 8 }, (_, r) => Array.from({ length: 8 }, (_, c) => `${FILES[black ? 7 - c : c]}${black ? r + 1 : 8 - r}` as Square));
+  flip.addEventListener("click", () => board.flip());
+  settings.addEventListener("click", () => openSettings(app, prefs, t, settings));
 
-  function position(square: Square, black: boolean): [number, number] {
-    const file = FILES.indexOf(square[0]);
-    const rank = Number(square[1]);
-    return black ? [rank - 1, 7 - file] : [8 - rank, file];
+  function strip(node: HTMLElement, colour: "w" | "b", view: View): void {
+    const name = view.phase === "alone" ? (colour === "w" ? t.whiteName : t.blackName) : view.me ? (colour === view.me ? t.you : t.contact) : node === bottom ? t.you : t.contact;
+    const dot = el("span", `dot ${view.me || view.phase === "alone" ? colour : "unknown"}`);
+    dot.setAttribute("aria-hidden", "true");
+    const label = el("span", "name", name);
+    const key = `${name}|${dot.className}|${view.turn === colour && !view.end}`;
+    if (node.dataset.key === key) return;
+    node.dataset.key = key;
+    node.classList.toggle("to-move", view.turn === colour && !view.end && view.phase !== "toss");
+    node.replaceChildren(dot, label);
   }
 
   function render(): void {
     const view = game.view();
-    const black = view.me === "b";
-    if (flipped !== black) {
-      flipped = black;
-      layout(black).forEach((row, r) => rows[r].replaceChildren(...row.map((s) => squares.get(s)!)));
-      if (black && focus === "e2") focus = "e7";
-    }
-    if (selected && !view.canMove) selected = null;
-    const targets = selected ? game.targets(selected) : [];
-    const targetSet = new Set(targets.map((m) => m.to));
-    const grid = game.board();
-    for (const [square, button] of squares) {
-      const [r, c] = [8 - Number(square[1]), FILES.indexOf(square[0])];
-      const piece = grid[r][c];
-      button.textContent = piece ? `${GLYPH[piece.type]}︎` : "";
-      button.classList.toggle("w", piece?.color === "w");
-      button.classList.toggle("b", piece?.color === "b");
-      button.classList.toggle("selected", square === selected);
-      button.classList.toggle("target", targetSet.has(square));
-      button.classList.toggle("capture", targetSet.has(square) && Boolean(piece));
-      const last = view.lastMove && (view.lastMove.from === square || view.lastMove.to === square);
-      button.classList.toggle("last", Boolean(last));
-      button.classList.toggle("check", view.inCheck && piece?.type === "k" && piece.color === view.turn);
-      const parts = [square, piece ? t.piece.replace("{colour}", piece.color === "w" ? t.white : t.black).replace("{piece}", t[`piece_${piece.type}`]) : t.empty];
-      if (square === selected) parts.push(t.selected);
-      if (targetSet.has(square)) parts.push(t.canMoveHere);
-      if (last) parts.push(t.lastMove);
-      button.setAttribute("aria-label", parts.join(", "));
-      button.setAttribute("aria-selected", String(square === selected));
-      button.tabIndex = square === focus ? 0 : -1;
-    }
-    board.classList.toggle("locked", !view.canMove);
+    board.render(view);
+    const down = board.orientation();
+    strip(bottom, down, view);
+    strip(top, down === "w" ? "b" : "w", view);
     status.textContent = statusText(view);
     side.textContent = view.me ? (view.me === "w" ? t.youAreWhite : t.youAreBlack) : "";
+    renderMoves(view);
     renderActions(view);
+    announce(view);
+  }
+
+  function announce(view: View): void {
+    if (lastPlies >= 0 && view.plies === lastPlies + 1 && view.lastMove) {
+      const who = view.phase === "alone" ? (view.lastMove.colour === "w" ? t.whiteName : t.blackName) : view.lastMove.colour === view.me ? t.you : t.contact;
+      announcer.say(sayMove(view.lastMove, who, view, t));
+    }
+    const end = view.end ? statusText(view) : "";
+    if (lastPlies >= 0 && end && end !== lastEnd) announcer.say(end);
+    lastEnd = end;
+    lastPlies = view.plies;
+  }
+
+  function renderMoves(view: View): void {
+    if (view.plies === movesShown) return;
+    movesShown = view.plies;
+    const sans = game.history();
+    const items: HTMLElement[] = [];
+    for (let i = 0; i < sans.length; i += 2) {
+      const li = el("li", "move");
+      li.append(el("span", "no", `${i / 2 + 1}.`), el("span", `san${i === sans.length - 1 ? " current" : ""}`, sans[i]));
+      if (sans[i + 1]) li.append(el("span", `san${i + 1 === sans.length - 1 ? " current" : ""}`, sans[i + 1]));
+      items.push(li);
+    }
+    moves.replaceChildren(...items);
+    moves.hidden = sans.length === 0;
+    // The newest move in view, in either layout.
+    moves.scrollTop = moves.scrollHeight;
+    moves.scrollLeft = document.documentElement.dir === "rtl" ? -moves.scrollWidth : moves.scrollWidth;
   }
 
   function statusText(view: View): string {
@@ -188,94 +225,49 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings)
     if (hadFocus) (actions.querySelector<HTMLButtonElement>(".danger") ?? actions.querySelector<HTMLButtonElement>("button"))?.focus();
   }
 
-  function showPromotion(from: Square, to: Square): void {
-    pending = { from, to };
-    const label = el("span", "", t.promoteTo);
-    const colour = game.view().turn;
-    const choices = (["q", "r", "b", "n"] as const).map((p) => {
-      const b = button(`${GLYPH[p]}︎`, () => finishPromotion(p), `piece ${colour}`);
-      b.setAttribute("aria-label", t[`piece_${p}`]);
-      return b;
-    });
-    promote.replaceChildren(label, ...choices);
-    promote.hidden = false;
-    choices[0].focus();
+  // ---------- layout ----------
+
+  let measuredPanel = 150;
+  function fit(): void {
+    const width = document.documentElement.clientWidth || window.innerWidth;
+    const height = window.innerHeight;
+    if (!width || !height) return;
+    const strips = (top.offsetHeight || 28) + (bottom.offsetHeight || 28) + GAP;
+    if (app.dataset.layout === "narrow" && panel.offsetHeight) measuredPanel = panel.offsetHeight;
+    const { side: px, wide } = fitBoard(width, height, strips, measuredPanel);
+    board.setSide(px);
+    app.style.setProperty("--side", `${px}px`);
+    app.dataset.layout = wide ? "wide" : "narrow";
   }
-
-  function finishPromotion(piece: "q" | "r" | "b" | "n" | null): void {
-    const move = pending;
-    pending = null;
-    promote.hidden = true;
-    promote.replaceChildren();
-    squares.get(focus)?.focus();
-    if (move && piece) void game.move(move.from, move.to, piece).then(() => (selected = null));
-    selected = null;
-    render();
-  }
-
-  function activate(square: Square): void {
-    focus = square;
-    const view = game.view();
-    if (!view.canMove) return render();
-    if (selected) {
-      const target = game.targets(selected).find((m) => m.to === square);
-      if (target) {
-        const from = selected;
-        if (target.promotion) return showPromotion(from, square);
-        selected = null;
-        void game.move(from, square);
-        return render();
-      }
-    }
-    selected = selected !== square && game.targets(square).length ? square : null;
-    render();
-  }
-
-  board.addEventListener("click", (event) => {
-    const square = (event.target as HTMLElement).closest<HTMLButtonElement>(".sq")?.dataset.square as Square | undefined;
-    if (square) activate(square);
-  });
-
-  board.addEventListener("keydown", (event) => {
-    const black = game.view().me === "b";
-    let [r, c] = position(focus, black);
-    switch (event.key) {
-      case "ArrowUp": r = Math.max(0, r - 1); break;
-      case "ArrowDown": r = Math.min(7, r + 1); break;
-      case "ArrowLeft": c = Math.max(0, c - 1); break;
-      case "ArrowRight": c = Math.min(7, c + 1); break;
-      case "Home": c = 0; break;
-      case "End": c = 7; break;
-      case "Enter":
-      case " ":
-        event.preventDefault();
-        return activate(focus);
-      case "Escape":
-        selected = null;
-        return render();
-      default:
-        return;
-    }
-    event.preventDefault();
-    focus = layout(black)[r][c];
-    render();
-    squares.get(focus)?.focus();
-  });
-
-  promote.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") finishPromotion(null);
-  });
+  fit();
+  const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => fit()) : null;
+  observer?.observe(panel);
+  window.addEventListener("resize", fit);
 
   const offChange = game.subscribe(render);
+  const offPrefs = prefs.subscribe((p) => {
+    board.setPrefs(p);
+    render();
+  });
   const offNotice = game.onNotice((n) => {
-    notice.textContent = t[NOTICE_KEY[n]];
+    const text = t[NOTICE_KEY[n]];
+    const target = INFO_NOTICES.has(n) ? info : notice;
+    target.textContent = text;
+    if (target === info) announcer.say(text);
     clearTimeout(noticeTimer);
-    noticeTimer = setTimeout(() => (notice.textContent = ""), 6000);
+    noticeTimer = setTimeout(() => {
+      notice.textContent = "";
+      info.textContent = "";
+    }, 6000);
   });
   render();
   return () => {
     offChange();
+    offPrefs();
     offNotice();
+    observer?.disconnect();
+    window.removeEventListener("resize", fit);
+    board.destroy();
     clearTimeout(noticeTimer);
   };
 }

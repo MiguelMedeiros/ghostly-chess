@@ -22,18 +22,31 @@ npm run typecheck
 npm test          # rules, the protocol, the board, two sides on a mock broker, and the built bundle
 npm run build     # dist/index.html, the whole app in one file
 npm run dev       # a dev server; outside Ghostly it plays alone on a stand-in broker that keeps nothing
+npm run test:browser   # the built page in Chromium and WebKit (npx playwright install chromium webkit once)
 ```
 
+`npm run test:browser` drags pieces with a mouse and a finger, checks the layout from a 320 px phone to a wide window
+(Desktop's 560x640 chat-app window included), and runs the page inside `<iframe sandbox="allow-scripts">` under a CSP
+like the web runner's. Desktop's WKWebView stays a check by hand.
+
 `npm run digest` prints the built file's SHA-256 in the form a signed bundle lists it. The build is reproducible:
-at this commit it gives the same bytes as the published 1.0.2 (`l5ozbABlwoZn7MBgzaQniVWT4shgPI10A_0Bi-fZENE`). The
-bundler is pinned (`overrides` in `package.json`) so it stays that way; a different `rolldown` minifies differently.
+the same commit always gives the same bytes, so a build can be checked against a published version (1.0.2 was
+`l5ozbABlwoZn7MBgzaQniVWT4shgPI10A_0Bi-fZENE`, built from the commit that moved Chess here). The bundler is pinned
+(`overrides` in `package.json`) so it stays that way; a different `rolldown` minifies differently.
 
 | Path | What it is |
 |---|---|
 | `src/game.ts` | The game: rules (chess.js), turns, sync and storage over the broker |
 | `src/protocol.ts` | The frames Chess sends, and the checks on what a peer sends (untrusted) |
 | `src/toss.ts` | Who plays white: a commit and reveal coin toss |
-| `src/ui.ts`, `src/style.css` | The board and the panel |
+| `src/ui.ts`, `src/style.css` | The page: player strips, the panel, the layout; the board themes are CSS tokens |
+| `src/board.ts` | The board: squares, highlights, coordinates, orientation, click and drag input, promotion |
+| `src/pieces.ts`, `src/generated/pieces.ts` | The piece sets: cburnett (SVG, built with `createElementNS`) and Classic (glyphs) |
+| `src/prefs.ts`, `src/settings.ts`, `src/dialog.ts` | The settings, per chat, and their dialog |
+| `src/announce.ts` | The live region that reads each move aloud |
+| `assets/pieces/cburnett/` | The 12 piece SVGs from Wikimedia Commons and their BSD-3-Clause license |
+| `scripts/pieces.mjs` | `npm run gen:pieces`: the SVGs as data (allowlisted tags and attributes only) |
+| `test/browser/` | Playwright specs and their two-page harness with a test broker |
 | `src/strings.ts`, `src/languages.ts` | Every string: English, then the 7 other languages |
 | `src/vendor/miniApp.ts` | The broker's types and limits, copied from Ghostly's `@ghostly/core/miniApp` (see its header) |
 | `test/mockBroker.ts` | A broker with the WISP's rules, for two sides of one chat |
@@ -74,4 +87,5 @@ next index refresh.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The built file carries the notices of chess.js (BSD-2-Clause) and @noble/hashes (MIT).
+MIT, see [LICENSE](LICENSE). The built file carries the notices of chess.js (BSD-2-Clause), @noble/hashes (MIT) and
+the cburnett pieces by Colin M.L. Burnett (BSD-3-Clause, see [assets/pieces/cburnett/LICENSE](assets/pieces/cburnett/LICENSE)).

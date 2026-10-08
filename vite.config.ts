@@ -5,7 +5,8 @@
  *
  * Third-party notices: every npm package the script carries goes into a comment at its top with its license text,
  * read from the package (chess.js is BSD-2-Clause, @noble/hashes MIT; both ask for their notice in copies). A
- * package with no license file fails the build.
+ * package with no license file fails the build. Vendored assets add the notices in ASSET_NOTICES: an explicit list,
+ * not a glob, so a legal text kept beside the data in the repository (and not needed in copies) never ships.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,8 +14,11 @@ import { defineConfig, type Plugin } from "vite";
 
 const LICENSE_FILES = ["LICENSE", "LICENSE.md", "LICENSE.txt", "license", "LICENCE"];
 
-/** The notice block for the npm packages among these module ids. */
-export function thirdPartyNotices(moduleIds: string[]): string {
+/** Notices of vendored assets the page carries, [title, file]: the pieces' BSD-3-Clause license. */
+export const ASSET_NOTICES: [string, string][] = [["Chess pieces \"cburnett\" (BSD-3-Clause)", "assets/pieces/cburnett/LICENSE"]];
+
+/** The notice block for the npm packages among these module ids, then the vendored assets'. */
+export function thirdPartyNotices(moduleIds: string[], assets: [string, string][] = ASSET_NOTICES): string {
   const packages = new Map<string, string>();
   for (const id of moduleIds) {
     const match = /^(.*\/node_modules\/((?:@[^/]+\/)?[^/]+))\//.exec(id.replace(/\\/g, "/").replace(/^\0/, ""));
@@ -26,6 +30,7 @@ export function thirdPartyNotices(moduleIds: string[]): string {
     if (!file) throw new Error(`${name} has no license file to carry in the bundle`);
     return `${name} ${pkg.version} (${pkg.license ?? "see below"})\n\n${readFileSync(file, "utf8").trim()}`;
   });
+  for (const [title, file] of assets) blocks.push(`${title}\n\n${readFileSync(join(import.meta.dirname, file), "utf8").trim()}`);
   const text = `Third-party software in this file:\n\n${blocks.join("\n\n----\n\n")}`;
   if (text.includes("*/")) throw new Error("a license text would end the notice comment early");
   return text;

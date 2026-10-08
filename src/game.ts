@@ -14,7 +14,7 @@
  * the sender may claim (its own resignation, or a draw this side offered). Anything else is shown as "out of step",
  * and New game starts a fresh toss that gives up both games.
  */
-import { Chess, type Square } from "chess.js";
+import { Chess, type Move, type Square } from "chess.js";
 import type { MiniAppApi, MiniAppJson, MiniAppPeerEvent } from "./vendor/miniApp.ts";
 import { encodeMessage, MAX_PLIES, parseMessage, UCI, type Colour, type DrawOption, type GameEnd, type Message } from "./protocol.ts";
 import { commitment, cryptoRandom, deal, newSalt, type Random } from "./toss.ts";
@@ -89,12 +89,26 @@ export interface View {
   fen: string;
   turn: Colour;
   plies: number;
-  lastMove?: { from: Square; to: Square };
+  lastMove?: LastMove;
   inCheck: boolean;
   end?: Ending;
   drawOffer?: "me" | "peer";
   /** This side may move now. */
   canMove: boolean;
+}
+
+/** The last ply, as the board and the announcements show it. */
+export interface LastMove {
+  from: Square;
+  to: Square;
+  san: string;
+  colour: Colour;
+  /** The piece that moved (a pawn when it promoted). */
+  piece: "k" | "q" | "r" | "b" | "n" | "p";
+  captured?: "q" | "r" | "b" | "n" | "p";
+  promotion?: "q" | "r" | "b" | "n";
+  /** "k" or "q" when the move castled on that side. */
+  castle?: "k" | "q";
 }
 
 export interface ControllerOptions {
@@ -147,6 +161,15 @@ function endingOf(chess: Chess, plies: number, x: GameEnd | undefined): Ending |
   if (x?.why === "resign") return { result: x.by === "w" ? "0-1" : "1-0", why: "resign" };
   if (x?.why === "agreed") return { result: "1/2-1/2", why: "agreed" };
   return boardEnding(chess, plies);
+}
+
+function lastMoveOf(move: Move): LastMove {
+  const out: LastMove = { from: move.from, to: move.to, san: move.san, colour: move.color, piece: move.piece };
+  if (move.captured) out.captured = move.captured as LastMove["captured"];
+  if (move.promotion) out.promotion = move.promotion as LastMove["promotion"];
+  if (move.isKingsideCastle()) out.castle = "k";
+  else if (move.isQueensideCastle()) out.castle = "q";
+  return out;
 }
 
 const isPrefix = (a: string[], b: string[]) => a.length <= b.length && a.every((m, i) => b[i] === m);
@@ -251,12 +274,17 @@ export class ChessController {
       fen: this.chess.fen(),
       turn,
       plies,
-      lastMove: last ? { from: last.from, to: last.to } : undefined,
+      lastMove: last ? lastMoveOf(last) : undefined,
       inCheck: this.chess.inCheck(),
       end,
       drawOffer: this.inChat && !end ? this.game?.d : undefined,
       canMove,
     };
+  }
+
+  /** Every ply so far, in SAN ("e4", "Nf3", "O-O"). */
+  history(): string[] {
+    return this.chess.history();
   }
 
   /** The board as chess.js gives it, rank 8 first. */
