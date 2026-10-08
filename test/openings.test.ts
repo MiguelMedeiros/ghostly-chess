@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Chess } from "chess.js";
 import { describe, expect, it } from "vitest";
-import { build, generate, OUT, fnv1a as fnvScript } from "../scripts/openings.mjs";
+import { build, generate, OUT, readLines, shortName, fnv1a as fnvScript } from "../scripts/openings.mjs";
 import { FAMILIES, TABLE, VARIATIONS } from "../src/generated/openings.ts";
 import { decodeBase64url, epdOf, fnv1a, MAX_PLY, openingOf, openingOfEpd } from "../src/openings.ts";
 
@@ -36,7 +36,7 @@ describe("the generated table", () => {
 
   it("has no two entries with one 32-bit key", () => {
     const { records } = build();
-    expect(records).toHaveLength(1823);
+    expect(records).toHaveLength(2175);
     expect(new Set(records.map((r) => r.key)).size).toBe(records.length);
     const bytes = decodeBase64url(TABLE);
     expect(bytes.length).toBe(records.length * 9);
@@ -64,6 +64,23 @@ describe("looking a game up", () => {
   it("finds the Queen's Gambit Declined (D30) from 1.c4 e6 2.d4 d5, by transposition", () => {
     expect(openingOf(fensOf("c4", "e6", "d4", "d5"))).toMatchObject({ name: "Queen's Gambit Declined", eco: "D30", ply: 4 });
   });
+
+  it("gives a variation's own ECO code where its name is the same as its parent's: 6.g3 in the Najdorf is B91", () => {
+    const najdorf = ["e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "a6"];
+    expect(openingOf(fensOf(...najdorf))).toMatchObject({ name: "Sicilian Defense: Najdorf Variation", eco: "B90" });
+    expect(openingOf(fensOf(...najdorf, "g3"))).toMatchObject({ name: "Sicilian Defense: Najdorf Variation", eco: "B91" });
+    expect(openingOf(fensOf("Nf3", "d5", "g3"))?.eco).toBe("A07");
+  });
+
+  it("gives every line of the data set its own ECO code and short name, looked up along its own moves", () => {
+    const wrong: string[] = [];
+    for (const line of readLines()) {
+      const found = openingOf(line.epds);
+      const name = shortName(line.name).filter(Boolean).join(": ");
+      if (found?.eco !== line.eco || found.name !== name) wrong.push(`${line.eco} ${line.name}: got ${found?.eco} ${found?.name}`);
+    }
+    expect(wrong).toEqual([]);
+  }, 30_000);
 
   it("takes the EPD without the move counters", () => {
     const [fen] = fensOf("e4");

@@ -29,6 +29,7 @@ import type { GameHistory, LastMove } from "./history.ts";
 import { MAX_PLY, openingOf, type Opening } from "./openings.ts";
 import { createGameOver, createMoveList, createReviewBar, moveWords, openPgnDialog, renderOpening, takenNode } from "./panel.ts";
 import { pgnOfGame } from "./pgn.ts";
+import { SVG_NS } from "./pieces.ts";
 import { PrefsStore } from "./prefs.ts";
 import { Review } from "./review.ts";
 import { openSettings } from "./settings.ts";
@@ -68,6 +69,37 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 };
 
+/**
+ * The mute button's speaker, on or crossed out: inline SVG in currentColor (built with createElementNS, as the pieces
+ * are), so it shows without an emoji font and follows forced colours. The button carries the name and pressed state.
+ */
+export function speakerIcon(on: boolean): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "20");
+  svg.setAttribute("height", "20");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.classList.add("speaker", on ? "on" : "off");
+  const path = (d: string, stroke: boolean) => {
+    const node = document.createElementNS(SVG_NS, "path");
+    node.setAttribute("d", d);
+    if (stroke) {
+      node.setAttribute("fill", "none");
+      node.setAttribute("stroke", "currentColor");
+      node.setAttribute("stroke-width", "2");
+      node.setAttribute("stroke-linecap", "round");
+    } else node.setAttribute("fill", "currentColor");
+    svg.append(node);
+  };
+  path("M3 9h4l5-4v14l-5-4H3z", false);
+  if (on) {
+    path("M15.5 9a4.5 4.5 0 0 1 0 6", true);
+    path("M18 6.5a8 8 0 0 1 0 11", true);
+  } else path("M15.5 9.5l5 5M20.5 9.5l-5 5", true);
+  return svg;
+}
+
 /** The board side and where the panel goes, for a window of width × height. */
 export function fitBoard(width: number, height: number, strips: number, panelBelow: number): { side: number; wide: boolean } {
   const floor8 = (n: number) => Math.max(MIN_SIDE, Math.floor(n / 8) * 8);
@@ -102,7 +134,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   const side = el("p", "side");
   const opening = el("p", "opening");
   const moves = createMoveList(t, (ply) => review.go(ply));
-  const reviewBar = createReviewBar(t, review);
+  const reviewBar = createReviewBar(t, review, () => toMoves());
   // The contact's draw offer: a card of its own in the controls. Below the board it floats up over the controls and the
   // move row instead of adding a row.
   const offerCard = el("div", "offer-card");
@@ -137,7 +169,10 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   root.replaceChildren(app);
 
   const toMoves = () => {
-    const target = moves.element.querySelector<HTMLButtonElement>('button[tabindex="0"]') ?? reviewBar.element.querySelector<HTMLButtonElement>("button:not([disabled])");
+    const target =
+      moves.element.querySelector<HTMLButtonElement>('button[tabindex="0"]') ??
+      reviewBar.element.querySelector<HTMLButtonElement>("button:not([disabled])") ??
+      actions.querySelector<HTMLButtonElement>("button");
     target?.focus();
   };
   const copyPgn = (opener: HTMLElement) => openPgnDialog(app, pgnOfGame(game), t, opener);
@@ -188,7 +223,10 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     reviewBar.render(view.plies);
     renderActions(view);
     const sound = prefs.get().sound;
-    mute.textContent = sound ? "\u{1F50A}" : "\u{1F507}";
+    if (mute.dataset.on !== String(sound)) {
+      mute.dataset.on = String(sound);
+      mute.replaceChildren(speakerIcon(sound));
+    }
     mute.setAttribute("aria-pressed", String(sound));
     const end = view.end;
     gameOver.render(view, end ? `${view.plies}|${end.why}|${end.result}|${record.fens[1] ?? ""}` : "", boardHadFocus);
@@ -254,8 +292,6 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
       );
       offerCard.hidden = !offered;
     }
-    const liveHadFocus = actions.querySelector(".live") === document.activeElement;
-    if (review.reviewing()) out.push(button(t.backToLive, () => review.live(), "live"));
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.newGame, () => void game.newGame()));
     if (view.phase === "playing") {
       const offer = button(view.drawOffer === "me" ? t.youOfferedDraw : t.offerDraw, () => void game.offerDraw());
@@ -279,8 +315,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     if (view.phase === "alone" && view.plies > 0) out.push(button(t.copyPgn, (b) => copyPgn(b), "pgn-btn"));
     const hadFocus = actions.contains(document.activeElement) || (cardHadFocus && offerCard.hidden);
     actions.replaceChildren(...out);
-    if (liveHadFocus && !review.reviewing()) toMoves();
-    else if (hadFocus) (actions.querySelector<HTMLButtonElement>(".danger") ?? actions.querySelector<HTMLButtonElement>("button"))?.focus();
+    if (hadFocus) (actions.querySelector<HTMLButtonElement>(".danger") ?? actions.querySelector<HTMLButtonElement>("button"))?.focus();
   }
 
   // ---------- keys ----------

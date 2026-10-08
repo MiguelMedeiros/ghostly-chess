@@ -51,15 +51,17 @@ describe("the move list", () => {
     expect(list.dir).toBe("ltr");
     const buttons = moveButtons(root);
     expect(buttons.map((b) => b.textContent)).toEqual(["e4", "e5", "Nf3", "Nc6", "Bb5"]);
-    expect(buttons[0].getAttribute("aria-label")).toBe("1. White: pawn to e4");
-    expect(buttons[3].getAttribute("aria-label")).toBe("2. Black: knight to c6");
+    expect(buttons[0].getAttribute("aria-label")).toBe("1. e4, White: pawn to e4");
+    expect(buttons[3].getAttribute("aria-label")).toBe("2. Nc6, Black: knight to c6");
+    // Each name holds the label on screen (WCAG 2.5.3).
+    for (const b of buttons) expect(b.getAttribute("aria-label")).toContain(b.textContent!);
     expect(buttons.filter((b) => b.tabIndex === 0)).toEqual([buttons[4]]);
     expect(current(root)).toBe("5");
     // The move numbers are not read on their own: each button says its number.
     expect(root.querySelector(".moves .no")!.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("a click on a move shows that position, and Back to live returns to the game", async () => {
+  it("a click on a move shows that position, and » (Back to live while reviewing) returns to the game", async () => {
     const { solo, root } = await alone("e2e4", "e7e5", "g1f3");
     moveButtons(root)[0].click();
     expect(current(root)).toBe("1");
@@ -72,13 +74,18 @@ describe("the move list", () => {
     // The game itself did not move: its status is the live one.
     expect(root.querySelector(".status")!.textContent).toBe("Black to move");
     expect(solo.game.view().plies).toBe(3);
-    const live = root.querySelector<HTMLButtonElement>(".actions .live")!;
-    expect(live.textContent).toBe("Back to live");
+    // No Back to live in the controls (a row of its own below the board): » is the way back, marked and named so.
+    expect(root.querySelector(".actions .live")).toBeNull();
+    const live = navButton(root, "last");
+    expect(live.classList.contains("live")).toBe(true);
+    expect(live.getAttribute("aria-label")).toBe("Back to live");
+    expect(live.title).toBe("Back to live");
     live.focus();
     live.click();
     expect(reviewing(root)).toBe(false);
     expect(sq(root, "f3").dataset.piece).toBe("wn");
-    expect(root.querySelector(".actions .live")).toBeNull();
+    expect(live.classList.contains("live")).toBe(false);
+    expect(live.getAttribute("aria-label")).toBe("Last move");
     // Focus does not fall to the page: it goes to the move list.
     expect(document.activeElement).toBe(moveButtons(root)[2]);
   });
@@ -161,7 +168,7 @@ describe("the move list", () => {
     expect(sentMoves(white)).toHaveLength(1);
     expect(sq(root, "g1").classList.contains("selected")).toBe(false);
     // Live again, the same clicks play.
-    root.querySelector<HTMLButtonElement>(".actions .live")!.click();
+    navButton(root, "last").click();
     pointerClick(sq(root, "g1"));
     pointerClick(sq(root, "f3"));
     await settle(white, black);
@@ -180,7 +187,7 @@ describe("the move list", () => {
     expect(sq(root, "e5").dataset.piece).toBe("");
     expect(root.querySelector("[aria-live]")!.textContent).toBe("Your contact: bishop to b5");
     expect(root.querySelector(".status")!.textContent).toBe("Your move");
-    root.querySelector<HTMLButtonElement>(".actions .live")!.click();
+    navButton(root, "last").click();
     expect(sq(root, "b5").dataset.piece).toBe("wb");
     expect(current(root)).toBe("5");
   });
@@ -201,6 +208,11 @@ describe("the opening and the pieces taken", () => {
     // The review shows the opening of the position under the cursor.
     navButton(root, "prev").click();
     expect(root.querySelector(".opening-name")!.textContent).toBe("B00 King's Pawn Game");
+    expect(root.querySelector(".opening")!.getAttribute("title")).toBe("B00 King's Pawn Game");
+    // At the start, no opening: no line, and no tooltip left over.
+    navButton(root, "first").click();
+    expect(root.querySelector(".opening")!.textContent).toBe("");
+    expect(root.querySelector(".opening")!.hasAttribute("title")).toBe(false);
   });
 
   it("shows the pieces each side took and the lead of the side ahead, in its strip, at the reviewed ply", async () => {
@@ -272,6 +284,22 @@ describe("the game-over card", () => {
     expect(card.hidden).toBe(true);
   });
 
+  it("has no Review for a game that ended before its first move", async () => {
+    const { white, black } = await startChat();
+    const root = mount(white);
+    root.querySelector<HTMLButtonElement>(".actions .danger")!.click();
+    root.querySelector<HTMLButtonElement>(".actions .danger")!.click();
+    await settle(white, black);
+    const card = root.querySelector<HTMLElement>(".over")!;
+    expect(card.hidden).toBe(false);
+    expect(card.querySelector<HTMLButtonElement>(".over-review")!.hidden).toBe(true);
+    // Escape closes it, and focus lands on a control, not the page.
+    card.querySelector<HTMLButtonElement>(".over-new")!.focus();
+    keyOn(card.querySelector(".over-new")!, "Escape");
+    expect(card.hidden).toBe(true);
+    expect(root.querySelector(".actions")!.contains(document.activeElement)).toBe(true);
+  });
+
   it("leaves focus where it was when it was not on the board", async () => {
     const { white, black } = await startChat();
     const root = mount(black);
@@ -310,6 +338,34 @@ describe("Copy PGN", () => {
     expect(text.value.trimEnd().endsWith("1. e4 e5 *")).toBe(true);
     expect(document.activeElement).toBe(text);
     expect([text.selectionStart, text.selectionEnd]).toEqual([0, text.value.length]);
+  });
+
+  it("selects the text again with the field briefly writable when a read-only field takes no selection (iOS)", async () => {
+    const proto = HTMLTextAreaElement.prototype;
+    const original = proto.setSelectionRange;
+    const select = proto.select;
+    // As iOS Safari may do: a read-only field ignores a scripted selection.
+    proto.select = function (this: HTMLTextAreaElement) {
+      if (!this.readOnly) select.call(this);
+    };
+    proto.setSelectionRange = function (this: HTMLTextAreaElement, ...args: Parameters<typeof original>) {
+      if (!this.readOnly) original.apply(this, args);
+    };
+    try {
+      const { text, copy } = await openPgn();
+      expect([text.selectionStart, text.selectionEnd]).toEqual([0, text.value.length]);
+      expect(text.readOnly).toBe(true);
+      text.setSelectionRange(0, 0);
+      text.readOnly = false;
+      text.setSelectionRange(0, 0);
+      text.readOnly = true;
+      copy.click();
+      expect([text.selectionStart, text.selectionEnd]).toEqual([0, text.value.length]);
+      expect(text.readOnly).toBe(true);
+    } finally {
+      proto.setSelectionRange = original;
+      proto.select = select;
+    }
   });
 
   it("says Copied when execCommand copies, inside the click", async () => {
@@ -382,11 +438,15 @@ describe("sounds on the page", () => {
 
     // The mute button: pressed state, saved in this chat's prefs, and silence.
     const mute = root.querySelector<HTMLButtonElement>(".mute")!;
+    // A drawn speaker, not an emoji: it shows without an emoji font, and follows forced colours.
+    expect(mute.textContent).toBe("");
+    expect(mute.querySelector("svg.speaker.on")!.getAttribute("aria-hidden")).toBe("true");
     expect(mute.getAttribute("aria-pressed")).toBe("true");
     expect(mute.getAttribute("aria-label")).toBe("Sounds");
     mute.click();
     await tick();
     expect(mute.getAttribute("aria-pressed")).toBe("false");
+    expect(mute.querySelector("svg.speaker.off")).not.toBeNull();
     expect(JSON.parse(solo.broker.stored.get(PREFS_KEY)!).sound).toBe(false);
     played.length = 0;
     root.querySelector<HTMLButtonElement>(".actions button")!.click(); // New game
@@ -398,7 +458,8 @@ describe("sounds on the page", () => {
   it("plays capture, castle, promote and check, and the start when the toss gives a game", async () => {
     const { white, black } = await startChat();
     const { played } = withSounds(white);
-    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
+    // A printable key is an activation.
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }));
     await tick();
     await play({ white, black }, "e2e4", "d7d5", "e4d5", "g8f6", "g1f3", "f6d5", "f1c4", "e7e6", "e1g1", "f8b4", "c2c3", "b4c3");
     expect(played).toEqual(["move", "move", "capture", "move", "move", "capture", "move", "move", "castle", "move", "move", "capture"]);
@@ -413,6 +474,20 @@ describe("sounds on the page", () => {
     await white.game.newGame();
     await settle(white, black);
     expect(played).toEqual(["end", "start"]);
+  });
+
+  it("Escape and Shift are not activations: silent until a later click", async () => {
+    const solo = await startAlone();
+    const { played } = withSounds(solo);
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
+    await tick();
+    await play({ white: solo }, "e2e4");
+    expect(played).toEqual([]);
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    await play({ white: solo }, "e7e5");
+    expect(played).toEqual(["move"]);
   });
 
   it("plays promote for a promotion", async () => {

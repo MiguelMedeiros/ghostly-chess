@@ -9,8 +9,12 @@
 // the en passant square only when a capture is legal, as the data set's own EPDs do).
 //
 // A name is cut to "Family: first variation" ("Sicilian Defense: Najdorf Variation, English Attack" is kept as
-// "Sicilian Defense: Najdorf Variation"). A line whose short name is the same as that of the nearest named position
-// before it on its own line adds nothing, and is dropped.
+// "Sicilian Defense: Najdorf Variation"). A line adds nothing, and is dropped, when the page would show the same short
+// name and ECO code without it: when the deepest kept position before its end, along its own moves, has both. Lines
+// are taken shortest first. One with the same short name and another code is kept ("Sicilian Defense: Najdorf
+// Variation" is B90 after 6. Be3 but B91 after 6. g3). Then every line is looked up along its own moves as the page
+// does, and one that shows another name or code (a transposition through a position another line names) is kept too,
+// until each line shows its own.
 //
 // Each kept position is one 9-byte record, sorted by its key: the 32-bit FNV-1a hash of its EPD (4 bytes, big-endian),
 // the family index (1 byte), the variation index (2 bytes, 0 for none) and the ECO code (2 bytes: letter * 100 +
@@ -82,14 +86,32 @@ export function build(lines = readLines()) {
     if (named.has(key)) throw new Error(`two lines end on one position: ${named.get(key).name} and ${line.name}`);
     named.set(key, line);
   }
-  const kept = [];
-  for (const line of lines) {
-    const short = shortName(line.name).join(": ");
-    let parent;
-    for (let i = line.epds.length - 2; i >= 0 && !parent; i--) parent = named.get(line.epds[i]);
-    if (parent && shortName(parent.name).join(": ") === short) continue;
-    kept.push(line);
+  const label = (line) => `${line.eco} ${shortName(line.name).join(": ")}`;
+  const end = (line) => line.epds[line.epds.length - 1];
+  /** Kept lines by the position they end on. */
+  const keptAt = new Map();
+  /** What the page shows for a line's moves up to `last` (an index into its EPDs): the deepest kept position. */
+  const shown = (line, last) => {
+    for (let i = last; i >= 0; i--) {
+      const found = keptAt.get(line.epds[i]);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  for (const line of [...lines].sort((a, b) => a.epds.length - b.epds.length)) {
+    const before = shown(line, line.epds.length - 2);
+    if (!before || label(before) !== label(line)) keptAt.set(end(line), line);
   }
+  for (let round = 0; ; round++) {
+    const wrong = lines.filter((line) => {
+      const found = shown(line, line.epds.length - 1);
+      return !found || label(found) !== label(line);
+    });
+    if (!wrong.length) break;
+    if (round >= 8) throw new Error(`lines that do not show their own name: ${wrong.map((l) => l.name).join(", ")}`);
+    for (const line of wrong) keptAt.set(end(line), line);
+  }
+  const kept = lines.filter((line) => keptAt.get(end(line)) === line);
   const families = [...new Set(kept.map((l) => shortName(l.name)[0]))].sort();
   const variations = ["", ...[...new Set(kept.map((l) => shortName(l.name)[1]).filter(Boolean))].sort()];
   if (families.length > 256 || variations.length > 65536) throw new Error("too many names for the record's fields");

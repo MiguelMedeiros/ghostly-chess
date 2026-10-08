@@ -151,6 +151,8 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .act.danger { color: var(--danger); }
 .act.icon { min-width: 40px; padding: 4px 10px; font-size: 18px; line-height: 1; }
 .act.live { border-color: var(--accent); color: var(--accent); }
+.act.mute { display: inline-flex; align-items: center; justify-content: center; }
+.act.mute .speaker { display: block; flex: none; }
 /* The contact's draw offer: its words on one line, Accept and Decline under them. Below the board it floats up from
    the controls' bottom edge over them and the move row, so it never resizes the board; beside the board it is the
    first row of the controls. */

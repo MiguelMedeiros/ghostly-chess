@@ -3,8 +3,10 @@
  *
  * Browsers start audio only from a user activation, so there is one AudioContext, made and resumed inside the first
  * click, pointerup or keydown in the frame (a touch's pointerdown is not an activation under HTML's rules, and a
- * context made there would stay suspended). Before that, play() is silent; without Web Audio it is silent always,
- * and it never throws.
+ * context made there would stay suspended). Escape and the modifier keys are not activations either, so they are
+ * ignored, and so is any event while the browser says the page has no transient activation. resume() is asked again
+ * on every later activation while the context is not running: one asked outside an activation may never settle.
+ * Before that, play() is silent; without Web Audio it is silent always, and it never throws.
  *
  * One sound per event, by priority: game end > check > promote > castle > capture > move. Nothing plays while the
  * page is hidden, or when this chat's sound setting is off. On an iPhone, the ring/silent switch mutes Web Audio.
@@ -76,6 +78,15 @@ function defaultContext(): AudioContextLike | null {
 }
 
 const ACTIVATIONS = ["click", "pointerup", "keydown"] as const;
+/** Keys whose keydown is not a user activation under HTML's rules. */
+const NOT_ACTIVATING = new Set(["Escape", "Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "Fn", "FnLock", "NumLock", "ScrollLock", "OS", "Hyper", "Super", "Symbol", "SymbolLock"]);
+
+/** Whether an event can start audio: not Escape or a modifier, and not when the browser says there is no activation. */
+export function activates(event: Event): boolean {
+  if (event.type === "keydown" && NOT_ACTIVATING.has((event as KeyboardEvent).key)) return false;
+  const activation = typeof navigator !== "undefined" ? (navigator as { userActivation?: { isActive?: boolean } }).userActivation : undefined;
+  return activation?.isActive !== false;
+}
 
 export class Sounds {
   private context: AudioContextLike | null = null;
@@ -83,7 +94,9 @@ export class Sounds {
   /** A resume() asked inside an activation and not settled yet: a sound played meanwhile starts when it does. */
   private resuming = false;
   private readonly options: Required<Omit<SoundOptions, "target">> & { target: EventTarget | undefined };
-  private readonly unlock = () => this.activate();
+  private readonly unlock = (event: Event) => {
+    if (activates(event)) this.activate();
+  };
 
   constructor(options: SoundOptions) {
     this.options = {
@@ -106,7 +119,10 @@ export class Sounds {
     return this.context?.state ?? "none";
   }
 
-  /** Inside a user activation: makes the context once, and resumes it whenever it is not running. */
+  /**
+   * Inside a user activation: makes the context once, and resumes it whenever it is not running, even while an earlier
+   * resume() is pending (resume is idempotent, and only one asked inside an activation is sure to settle).
+   */
   private activate(): void {
     if (this.failed) return;
     try {
@@ -115,7 +131,7 @@ export class Sounds {
         this.failed = true;
         return;
       }
-      if (this.context.state !== "running" && !this.resuming) {
+      if (this.context.state !== "running") {
         this.resuming = true;
         const done = () => void (this.resuming = false);
         this.context.resume().then(done, done);

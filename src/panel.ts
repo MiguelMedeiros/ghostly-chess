@@ -3,7 +3,8 @@
  * bar, the opening name, the pieces each side took, the game-over card over the board, and the PGN dialog. Plain DOM;
  * ui.ts puts them in the page and feeds them.
  *
- * The move list is a labelled list: each move's button is read as words ("1. White: pawn to e4"), its SAN shown. It
+ * The move list is a labelled list: each move's button shows its SAN and is read with words too ("1. e4, White: pawn
+ * to e4"). It
  * is one tab stop (the current move's button); Left/Right, Home/End and PageUp/PageDown move the review (ui.ts).
  * SAN and the move numbers are left to right in every language, so the list is too.
  */
@@ -44,10 +45,13 @@ export function moveWords(move: LastMove, who: string, t: Strings, check: boolea
   return text;
 }
 
-/** A ply of the move list, read aloud: "1. White: pawn to e4". */
+/**
+ * A ply of the move list, read aloud: "1. e4, White: pawn to e4". The name starts with the SAN the button shows, so
+ * voice control ("click Nf3") finds it (WCAG 2.5.3, Label in Name).
+ */
 export function plyLabel(ply: Ply, index: number, t: Strings): string {
   const who = ply.colour === "w" ? t.whiteName : t.blackName;
-  return `${Math.floor(index / 2) + 1}. ${moveWords(ply, who, t, ply.check, ply.mate)}`;
+  return `${Math.floor(index / 2) + 1}. ${ply.san}, ${moveWords(ply, who, t, ply.check, ply.mate)}`;
 }
 
 // ---------- the move list ----------
@@ -143,9 +147,11 @@ export interface ReviewBar {
   render(plies: number): void;
 }
 
-export function createReviewBar(t: Strings, review: Review): ReviewBar {
+/** `toLive` takes focus when » or › brought the review back to the live game and so went disabled under it. */
+export function createReviewBar(t: Strings, review: Review, toLive?: () => void): ReviewBar {
   const bar = el("div", "nav");
-  bar.setAttribute("role", "toolbar");
+  // A group, not a toolbar: each button is its own tab stop, and the arrow keys step the review (ui.ts).
+  bar.setAttribute("role", "group");
   bar.setAttribute("aria-label", t.nav);
   // Media controls are not mirrored in a right-to-left language.
   bar.dir = "ltr";
@@ -162,6 +168,11 @@ export function createReviewBar(t: Strings, review: Review): ReviewBar {
       const reviewing = review.reviewing();
       first.disabled = prev.disabled = at === 0;
       next.disabled = last.disabled = !reviewing;
+      // While reviewing, » is the way back to the live game: marked, and named so.
+      last.classList.toggle("live", reviewing);
+      const lastLabel = reviewing ? t.backToLive : t.nav_last;
+      last.title = lastLabel;
+      last.setAttribute("aria-label", lastLabel);
       play.disabled = plies === 0;
       const playing = review.playing();
       play.textContent = playing ? "❚❚" : "▶︎";
@@ -171,7 +182,8 @@ export function createReviewBar(t: Strings, review: Review): ReviewBar {
       // A button disabled under focus would drop it to the page: it goes to the next one that works.
       const focused = document.activeElement;
       if (focused instanceof HTMLButtonElement && focused.disabled && bar.contains(focused)) {
-        [...bar.querySelectorAll<HTMLButtonElement>("button")].find((b) => !b.disabled)?.focus();
+        if (toLive && (focused === last || focused === next)) toLive();
+        else [...bar.querySelectorAll<HTMLButtonElement>("button")].find((b) => !b.disabled)?.focus();
       }
     },
   };
@@ -186,6 +198,7 @@ export function renderOpening(node: HTMLElement, opening: Opening | undefined, t
   node.dataset.key = key;
   if (!opening) {
     node.replaceChildren();
+    node.removeAttribute("title");
     return;
   }
   const label = el("span", "sr-only", `${t.opening}: `);
@@ -267,11 +280,8 @@ export function createGameOver(t: Strings, actions: { newGame: () => void; copyP
     card.hidden = true;
     if (review || hadFocus) actions.review();
   };
-  row.append(
-    button(t.newGame, "primary over-new", () => actions.newGame()),
-    button(t.copyPgn, "over-pgn", (b) => actions.copyPgn(b)),
-    button(t.review, "over-review", () => close(true)),
-  );
+  const reviewButton = button(t.review, "over-review", () => close(true));
+  row.append(button(t.newGame, "primary over-new", () => actions.newGame()), button(t.copyPgn, "over-pgn", (b) => actions.copyPgn(b)), reviewButton);
   card.append(head, reason, row);
   card.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
@@ -291,6 +301,8 @@ export function createGameOver(t: Strings, actions: { newGame: () => void; copyP
       card.dir = document.documentElement.dir || "ltr";
       head.textContent = text.head;
       reason.textContent = text.reason;
+      // A game that ended before its first move (a resignation) has nothing to review.
+      reviewButton.hidden = view.plies === 0;
       const fresh = shownFor !== key || card.hidden;
       shownFor = key;
       card.hidden = false;
@@ -306,7 +318,8 @@ export function createGameOver(t: Strings, actions: { newGame: () => void; copyP
  * The game's PGN in a read-only text box, already selected. Copy tries document.execCommand("copy") inside the click
  * (which keeps the user's activation), then the async clipboard; it says Copied only when one says it worked. A
  * sandboxed frame may refuse both (an opaque origin, no clipboard-write permission): the selected text is the way
- * that always works, and the dialog says so.
+ * that always works, and the dialog says so. iOS Safari may not select a read-only field from a script: when the
+ * selection did not take, it is made again with the field briefly writable.
  */
 export function openPgnDialog(host: HTMLElement, pgn: string, t: Strings, opener?: HTMLElement | null): Dialog {
   const dialog = openDialog(host, { title: t.pgnTitle, closeLabel: t.close, opener });
@@ -322,10 +335,18 @@ export function openPgnDialog(host: HTMLElement, pgn: string, t: Strings, opener
   status.setAttribute("role", "status");
   const copy = el("button", "act primary pgn-copy", t.copy);
   copy.type = "button";
+  const selected = () => text.selectionStart === 0 && text.selectionEnd === text.value.length;
   const selectAll = () => {
     text.focus();
     text.select();
     text.setSelectionRange(0, text.value.length);
+    if (selected()) return;
+    text.readOnly = false;
+    try {
+      text.setSelectionRange(0, text.value.length);
+    } finally {
+      text.readOnly = true;
+    }
   };
   copy.addEventListener("click", () => {
     selectAll();

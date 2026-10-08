@@ -43,6 +43,8 @@ interface BrokerOptions {
   name: string;
   version: string;
   inChat: boolean;
+  /** The client's locale, as context() gives it. */
+  locale: string;
   /** Install the broker only in the sandboxed child frame. */
   childOnly: boolean;
 }
@@ -64,7 +66,7 @@ function installBroker(options: BrokerOptions): void {
   };
   w.__setPeer = (version: string | null) => (peer = version === null ? null : { version });
   w.ghostly = {
-    context: async () => ({ version: options.version, inChat: options.inChat, peer, theme: "light", locale: "en" }),
+    context: async () => ({ version: options.version, inChat: options.inChat, peer, theme: "light", locale: options.locale }),
     file: async () => new ArrayBuffer(0),
     storage: {
       get: async (key: string) => (store.has(key) ? JSON.parse(store.get(key)!) : undefined),
@@ -115,6 +117,8 @@ export async function openSide(
     sides?: Map<string, Side>;
     /** Scripts to run in every frame before the page's own (a probe that watches a browser API). */
     init?: (() => void)[];
+    /** The client's locale (default "en"). */
+    locale?: string;
   },
 ): Promise<Side> {
   const { name, mode = "top", inChat = true } = options;
@@ -148,7 +152,7 @@ export async function openSide(
     }, relay.latency);
     return true;
   });
-  await page.addInitScript(installBroker, { name, version: "1.1.0", inChat, childOnly: mode === "frame" } satisfies BrokerOptions);
+  await page.addInitScript(installBroker, { name, version: "1.1.0", inChat, locale: options.locale ?? "en", childOnly: mode === "frame" } satisfies BrokerOptions);
   for (const script of options.init ?? []) await page.addInitScript(script);
   sides.set(name, side);
   await page.goto(`${ORIGIN}/index.html`);
@@ -162,12 +166,15 @@ export async function chatPair(
   mode: Mode = "top",
   contextOptions?: BrowserContextOptions,
   init?: (() => void)[],
+  locale?: string,
 ): Promise<{ white: Side; black: Side; sides: Side[] }> {
   const sides = new Map<string, Side>();
-  const ana = await openSide(browser, { name: "ana", mode, sides, contextOptions, init });
-  const bob = await openSide(browser, { name: "bob", mode, sides, contextOptions, init });
-  for (const side of [ana, bob]) await side.frame.locator(".side").filter({ hasText: /You play (white|black)/ }).waitFor();
-  const anaWhite = (await ana.frame.locator(".side").textContent())!.includes("white");
+  const ana = await openSide(browser, { name: "ana", mode, sides, contextOptions, init, locale });
+  const bob = await openSide(browser, { name: "bob", mode, sides, contextOptions, init, locale });
+  // Who plays white, whatever the language: the side whose e2 is nearer the bottom (the board turns for black).
+  for (const side of [ana, bob]) await side.frame.locator(".side").filter({ hasText: /\S/ }).waitFor();
+  const below = async (side: Side) => (await side.frame.locator('[data-square="e2"]').boundingBox())!.y > (await side.frame.locator('[data-square="e7"]').boundingBox())!.y;
+  const anaWhite = await below(ana);
   return { white: anaWhite ? ana : bob, black: anaWhite ? bob : ana, sides: [ana, bob] };
 }
 

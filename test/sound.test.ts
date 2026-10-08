@@ -100,6 +100,45 @@ describe("the audio context", () => {
     }
   });
 
+  it("ignores Escape and modifier keys, and resumes again when an earlier resume never settled", async () => {
+    const { target, contexts, sounds } = setup();
+    for (const key of ["Escape", "Shift", "Control", "Alt", "Meta", "CapsLock"]) target.dispatchEvent(new KeyboardEvent("keydown", { key }));
+    expect(contexts, "no context from a key that is not an activation").toHaveLength(0);
+    // A resume that never settles (asked where the browser saw no activation) does not block the next one.
+    const create = () => {
+      const c = new FakeContext();
+      c.resume = () => {
+        c.resumes++;
+        return new Promise<void>(() => {});
+      };
+      contexts.push(c);
+      return c;
+    };
+    const stuck = setup({ create });
+    stuck.target.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+    stuck.target.dispatchEvent(new Event("click"));
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0].resumes).toBe(2);
+    sounds.stop();
+    stuck.sounds.stop();
+  });
+
+  it("ignores events while the browser says the page has no transient activation", () => {
+    const activation = { isActive: false };
+    Object.defineProperty(navigator, "userActivation", { value: activation, configurable: true });
+    try {
+      const { target, contexts, sounds } = setup();
+      target.dispatchEvent(new Event("click"));
+      expect(contexts).toHaveLength(0);
+      activation.isActive = true;
+      target.dispatchEvent(new Event("click"));
+      expect(contexts).toHaveLength(1);
+      sounds.stop();
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+  });
+
   it("is silent and never throws without Web Audio", () => {
     const none = setup({ create: () => null });
     none.target.dispatchEvent(new Event("click"));
