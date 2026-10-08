@@ -15,7 +15,7 @@
  * and New game starts a fresh toss that gives up both games.
  */
 import { Chess, type Square } from "chess.js";
-import type { MiniAppApi, MiniAppJson, MiniAppPeerEvent } from "@ghostly/core/miniApp";
+import type { MiniAppApi, MiniAppJson, MiniAppPeerEvent } from "./vendor/miniApp.ts";
 import { encodeMessage, MAX_PLIES, parseMessage, UCI, type Colour, type DrawOption, type GameEnd, type Message } from "./protocol.ts";
 import { commitment, cryptoRandom, deal, newSalt, type Random } from "./toss.ts";
 

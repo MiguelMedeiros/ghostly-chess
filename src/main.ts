@@ -1,8 +1,8 @@
 /**
- * Chess, a Ghostly mini-app. The runner gives it `window.ghostly` (the broker, see @ghostly/core/miniApp); opened
+ * Chess, a Ghostly mini-app. The runner gives it `window.ghostly` (the broker, see src/vendor/miniApp.ts); opened
  * outside the runner in a dev server, it plays alone on a stand-in broker that keeps nothing.
  */
-import type { MiniAppApi } from "@ghostly/core/miniApp";
+import type { MiniAppApi } from "./vendor/miniApp.ts";
 import { ChessController } from "./game.ts";
 import { pickLanguage, stringsFor } from "./strings.ts";
 import { mountChess } from "./ui.ts";

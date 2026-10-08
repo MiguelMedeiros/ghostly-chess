@@ -2,7 +2,7 @@
  * A stand-in for the client's broker, with the WISP's rules: storage per app and per chat with its limits, and
  * `chat.send` only while both sides have the app open, delivered in order and asynchronously, as a copy.
  */
-import { MINI_APP_LIMITS, type MiniAppApi, type MiniAppContext, type MiniAppJson, type MiniAppPeerEvent } from "@ghostly/core/miniApp";
+import { MINI_APP_LIMITS, type MiniAppApi, type MiniAppContext, type MiniAppJson, type MiniAppPeerEvent } from "../src/vendor/miniApp.ts";
 
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 

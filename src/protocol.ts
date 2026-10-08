@@ -12,7 +12,7 @@
  * Everything from the peer is untrusted: parseMessage checks the size first, then every field's type, shape and
  * range, and refuses the message whole. Unknown extra fields are ignored, so a later 1.x can add one.
  */
-import type { MiniAppJson } from "@ghostly/core/miniApp";
+import type { MiniAppJson } from "./vendor/miniApp.ts";
 
 export const PROTOCOL = "chess";
 export const VERSION = 1;

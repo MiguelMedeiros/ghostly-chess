@@ -1,6 +1,6 @@
 {
   "name": "chess",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "kind": "mini-app",
   "title": "Chess",
   "tagline": "Play chess with a contact, live in your chat",
@@ -10,6 +10,6 @@
   "view": "chat",
   "runtime": { "host": ">=1.2", "clients": ["web", "desktop"] },
   "license": "MIT",
-  "homepage": "https://github.com/MiguelMedeiros/ghostly/tree/dev/apps/mini/chess",
-  "support": "https://github.com/MiguelMedeiros/ghostly/issues"
+  "homepage": "https://github.com/MiguelMedeiros/ghostly-chess",
+  "support": "https://github.com/MiguelMedeiros/ghostly-chess/issues"
 }
