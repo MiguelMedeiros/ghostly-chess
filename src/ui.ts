@@ -158,7 +158,11 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     }
     moves.replaceChildren(...items);
     moves.hidden = sans.length === 0;
-    // The newest move in view, in either layout.
+    showNewestMove();
+  }
+
+  /** The newest move in view, in either layout (the row scrolls sideways, the column down). */
+  function showNewestMove(): void {
     moves.scrollTop = moves.scrollHeight;
     moves.scrollLeft = document.documentElement.dir === "rtl" ? -moves.scrollWidth : moves.scrollWidth;
   }
@@ -237,7 +241,11 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const { side: px, wide } = fitBoard(width, height, strips, measuredPanel);
     board.setSide(px);
     app.style.setProperty("--side", `${px}px`);
-    app.dataset.layout = wide ? "wide" : "narrow";
+    const layout = wide ? "wide" : "narrow";
+    if (app.dataset.layout !== layout) {
+      app.dataset.layout = layout;
+      showNewestMove();
+    }
   }
   fit();
   const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => fit()) : null;
