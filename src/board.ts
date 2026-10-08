@@ -187,14 +187,13 @@ export class Board {
     let refocus = false;
     if (bottom !== this.bottom) {
       this.bottom = bottom;
+      // Moving the squares drops focus from the one that had it (WebKit): it is given back below, to the square that
+      // takes Tab, which may have changed.
+      const active = document.activeElement;
+      refocus = [...this.squares.values()].some((square) => square === active);
       layout(bottom).forEach((row, r) => this.rows[r].replaceChildren(...row.map((s) => this.squares.get(s)!)));
       // The keyboard starts on this side's king pawn: e7 when black is at the bottom, whenever the board turns there.
-      // A focused e2 (focus handed to the board before the colours were known) hands it on, so it stays on the square
-      // that takes Tab.
-      if (bottom === "b" && this.focus === "e2") {
-        refocus = this.squares.get("e2") === document.activeElement;
-        this.focus = "e7";
-      }
+      if (bottom === "b" && this.focus === "e2") this.focus = "e7";
       this.drawCoords();
     }
     this.element.classList.toggle("classic", this.prefs.pieces === "classic");
