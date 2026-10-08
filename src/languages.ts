@@ -333,7 +333,7 @@ export const fr: Strings = {
   why_agreed: "accord",
   peerOffersDraw: "Votre contact propose la nulle",
   youOfferedDraw: "Nulle proposée",
-  offerDraw: "Proposer la nulle",
+  offerDraw: "Proposer nulle",
   accept: "Accepter",
   decline: "Refuser",
   resign: "Abandonner",
