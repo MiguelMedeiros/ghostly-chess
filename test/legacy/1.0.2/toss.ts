@@ -12,17 +12,12 @@
  * walks away before revealing can start over. The other side then draws a new salt (an old one is known by then)
  * and the app says the toss restarted, so the person sees it.
  *
- * Protocol 2 (deal2) binds the invitation's terms into the deal: SHA-256("ghostly-chess/2 deal", 0, low salt, high
- * salt, "tc=<base>+<inc>|-;r=<game>|-"). The same salts with other terms make another game id, so two sides that
- * disagree on the terms (a version misread, a forged sync) end "out of step", never in a mismatched game. A rematch
- * (r) gives each side the opposite of its colour in game r; otherwise the 9th byte decides, as in version 1.
- *
  * SHA-256 is @noble/hashes in plain JavaScript: crypto.subtle needs a secure context, which an app frame or a
  * custom-scheme window may not be.
  */
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
-import { tcText, type Colour, type TimeControl } from "./protocol.ts";
+import type { Colour } from "./protocol.ts";
 
 export type Random = (bytes: number) => Uint8Array;
 
@@ -60,30 +55,4 @@ export function deal(mySalt: string, peerSalt: string): { g: string; me: Colour 
   const digest = tagged("ghostly-chess/1 deal", hexToBytes(low), hexToBytes(high));
   const lowIsWhite = (digest[8] & 1) === 0;
   return { g: bytesToHex(digest.subarray(0, 8)), me: meLow === lowIsWhite ? "w" : "b" };
-}
-
-/** The terms of a v2 game as deal2 binds them: "tc=300+0;r=-". */
-export function termsText(terms: { tc?: TimeControl; r?: string }): string {
-  return `tc=${tcText(terms.tc)};r=${terms.r ?? "-"}`;
-}
-
-/**
- * The game two salts make under these terms (protocol 2), from one side's point of view. In a rematch (terms.r),
- * `prevColour` is this side's colour in game r, and it gets the other one. Throws when the salts are equal, or for a
- * rematch without the previous colour.
- */
-export function deal2(mySalt: string, peerSalt: string, terms: { tc?: TimeControl; r?: string }, prevColour?: Colour): { g: string; me: Colour } {
-  const mine = commitment(mySalt);
-  const theirs = commitment(peerSalt);
-  if (mine === theirs) throw new Error("chess: both sides used the same salt");
-  const meLow = mine < theirs;
-  const [low, high] = meLow ? [mySalt, peerSalt] : [peerSalt, mySalt];
-  const digest = tagged("ghostly-chess/2 deal", hexToBytes(low), hexToBytes(high), utf8ToBytes(termsText(terms)));
-  const g = bytesToHex(digest.subarray(0, 8));
-  if (terms.r) {
-    if (!prevColour) throw new Error("chess: a rematch needs this side's colour in the game before");
-    return { g, me: prevColour === "w" ? "b" : "w" };
-  }
-  const lowIsWhite = (digest[8] & 1) === 0;
-  return { g, me: meLow === lowIsWhite ? "w" : "b" };
 }

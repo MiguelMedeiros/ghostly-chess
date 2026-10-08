@@ -11,7 +11,7 @@ import { PLAY_STEP_MS } from "../src/review.ts";
 import type { AudioContextLike, SoundName } from "../src/sound.ts";
 import { en, type Strings } from "../src/strings.ts";
 import { mountChess } from "../src/ui.ts";
-import { mount as mountSide, play, pointer, settle, sq, startAlone, startChat, tick, type Side } from "./sides.ts";
+import { agree, mount as mountSide, play, pointer, settle, sq, startAlone, startChat, tick, type Side } from "./sides.ts";
 
 /** Every page mounted here, unmounted after each test: a page listens to the document's keys. */
 const mounted: Side[] = [];
@@ -229,7 +229,7 @@ describe("the opening and the pieces taken", () => {
 
 describe("the game-over card", () => {
   const REASONS = ["checkmate", "resign", "stalemate", "repetition", "fifty", "material", "agreed", "limit"] as const;
-  const view = (end: View["end"], me?: "w" | "b"): View => ({ phase: me ? "over" : "alone", me, peerOpen: true, fen: "", turn: "w", plies: 10, inCheck: false, canMove: false, end });
+  const view = (end: View["end"], me?: "w" | "b"): View => ({ phase: me ? "over" : "alone", me, peerOpen: true, fen: "", turn: "w", plies: 10, inCheck: false, canMove: false, end, mode: "v2", features: [] });
 
   it("says the result and how the game ended, for every reason, in English and Arabic", () => {
     const expected: Record<string, [string, string]> = {
@@ -313,12 +313,19 @@ describe("the game-over card", () => {
     expect(card.querySelector(".over-head")!.textContent).toBe("You lose");
     expect(card.querySelector(".over-reason")!.textContent).toBe("Resignation");
     expect(card.contains(document.activeElement)).toBe(false);
-    // New game on the card starts a new toss.
+    // New game on the card opens the new-game panel; an invitation accepted starts the game.
     card.querySelector<HTMLButtonElement>(".over-new")!.click();
+    await settle(white, black);
+    expect(black.game.view().phase).toBe("setup");
+    expect(card.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>(".setup")!.hidden).toBe(false);
+    root.querySelector<HTMLButtonElement>(".setup .invite-btn")!.click();
+    await settle(white, black);
+    await white.game.acceptInvitation();
     await settle(white, black);
     expect(black.game.view().phase).toBe("playing");
     expect(black.game.view().plies).toBe(0);
-    expect(card.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>(".setup")!.hidden).toBe(true);
   });
 });
 
@@ -473,6 +480,7 @@ describe("sounds on the page", () => {
     expect(played).toEqual(["end"]);
     await white.game.newGame();
     await settle(white, black);
+    await agree(white, black);
     expect(played).toEqual(["end", "start"]);
   });
 

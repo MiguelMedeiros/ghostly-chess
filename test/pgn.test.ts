@@ -47,7 +47,8 @@ describe("PGN", () => {
   it("dates a game from its start date, and a game migrated from 1.0.2 '????.??.??'", async () => {
     // The toss completes on 8 October 2026 at noon, local time.
     const at = new Date(2026, 9, 8, 12, 0, 0).getTime();
-    const [a, b] = chatPair();
+    // Both on a 1.x Chess, so the toss starts by itself.
+    const [a, b] = chatPair("1.2.0");
     a.launch();
     b.launch();
     const ana = new ChessController(a, { now: () => at });

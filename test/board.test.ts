@@ -34,7 +34,8 @@ describe("orientation", () => {
   });
 
   it("starts black's keyboard focus on e7 when the page was drawn before the toss gave the colours", async () => {
-    const [a, b] = chatPair();
+    // A 1.x contact: the toss starts by itself, after both pages are drawn.
+    const [a, b] = chatPair("1.2.0");
     const ana = await open(a);
     const anaRoot = mount(ana);
     const bob = await open(b);

@@ -7,6 +7,7 @@ import { ChessController, type Notice } from "../src/game.ts";
 import { PrefsStore } from "../src/prefs.ts";
 import { en, type Strings } from "../src/strings.ts";
 import { mountChess } from "../src/ui.ts";
+import { PROTO2_SINCE, speaksV2 } from "../src/protocol.ts";
 import { chatPair, MockBroker } from "./mockBroker.ts";
 
 export interface Side {
@@ -38,15 +39,27 @@ export async function settle(...sides: Side[]): Promise<void> {
   }
 }
 
-/** Two open sides, colours tossed. */
-export async function startChat(): Promise<{ ana: Side; bob: Side; white: Side; black: Side }> {
-  const [a, b] = chatPair();
+/**
+ * Two open sides, colours tossed. Both report `version` (protocol 2 by default): with protocol 2 Ana invites to an
+ * unlimited game and Bob accepts; with an older version the toss starts by itself, as in Chess 1.0.2.
+ */
+export async function startChat(version = PROTO2_SINCE): Promise<{ ana: Side; bob: Side; white: Side; black: Side }> {
+  const [a, b] = chatPair(version);
   const ana = await open(a);
   const bob = await open(b);
   await settle(ana, bob);
+  if (speaksV2(version)) await agree(ana, bob);
   const white = ana.game.view().me === "w" ? ana : bob;
   const black = white === ana ? bob : ana;
   return { ana, bob, white, black };
+}
+
+/** Protocol 2: `inviter` invites to an unlimited game and `invitee` accepts it. */
+export async function agree(inviter: Side, invitee: Side): Promise<void> {
+  await inviter.game.invite();
+  await settle(inviter, invitee);
+  await invitee.game.acceptInvitation();
+  await settle(inviter, invitee);
 }
 
 /** One side playing alone (opened outside a chat). */

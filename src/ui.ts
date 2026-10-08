@@ -20,11 +20,19 @@
  * Keys: Left/Right step the review and Home/End go to its ends when focus is outside the board (the board keeps the
  * arrows for its squares); PageUp/PageDown step it from anywhere. A dialog keeps its keys.
  *
- * Stable for Ghostly's end-to-end tests: the .status and .side texts, and the squares (see board.ts).
+ * Below the notices, one standing line (hidden while a notice shows): that this side may still move while the contact's
+ * Chess is closed, that an invitation waits for the contact, or, with Chess 1.0.2 (version 1), what the contact's
+ * version lacks, with the details behind ⓘ. The new-game panel and the contact's invitation are cards on the board
+ * (setup.ts), so the board keeps its size.
+ *
+ * Stable for Ghostly's end-to-end tests: the .status and .side texts, and the squares (see board.ts). .status keeps
+ * 1.0.2's words, also while this side may still move with the contact away: the hint is a line of its own.
  */
 import type { ChessController, Notice, View } from "./game.ts";
 import { createAnnouncer } from "./announce.ts";
 import { Board } from "./board.ts";
+import { openDialog } from "./dialog.ts";
+import { OWN_FEATURES } from "./game.ts";
 import type { GameHistory, LastMove } from "./history.ts";
 import { MAX_PLY, openingOf, type Opening } from "./openings.ts";
 import { createGameOver, createMoveList, createReviewBar, moveWords, openPgnDialog, renderOpening, takenNode } from "./panel.ts";
@@ -33,6 +41,7 @@ import { SVG_NS } from "./pieces.ts";
 import { PrefsStore } from "./prefs.ts";
 import { Review } from "./review.ts";
 import { openSettings } from "./settings.ts";
+import { createSetup } from "./setup.ts";
 import { soundOf, Sounds, type Seen, type SoundOptions } from "./sound.ts";
 import type { StringKey, Strings } from "./strings.ts";
 
@@ -46,9 +55,10 @@ const NOTICE_KEY: Record<Notice, StringKey> = {
   "out-of-step": "notice_outOfStep",
   "peer-new-game": "notice_peerNewGame",
   "send-failed": "notice_sendFailed",
+  declined: "notice_declined",
 };
 /** Notices that report what happened rather than a fault: they are announced politely, not as alerts. */
-const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game"]);
+const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game", "declined"]);
 
 /** The panel's width beside the board, and the smallest board side (24 px squares, WCAG 2.2's target size). */
 const PANEL_WIDTH = 240;
@@ -61,6 +71,18 @@ const GAP = 8;
  * them.
  */
 export const NARROW_PANEL = 20 + 18 + 16 + 30 + 32 + 36 + 18 + 7 * 6;
+
+const fill = (template: string, values: Record<string, string>) => template.replace(/\{(\w+)\}/g, (_, k: string) => values[k] ?? "");
+
+/** The standing line's words for a view, if any: see the module comment. */
+export function standingText(view: View, t: Strings): { text: string; details: boolean } | null {
+  if (view.phase === "playing" && !view.peerOpen && view.canMove) return { text: t.canStillMove, details: false };
+  if (view.phase === "invited" && !view.peerOpen) return { text: t.invitedAway, details: false };
+  if (view.peerOpen && view.mode === "v1" && view.phase !== "alone" && view.phase !== "loading") {
+    return { text: view.peerVersion ? fill(t.compatBanner, { version: view.peerVersion }) : t.compatBannerOld, details: true };
+  }
+  return null;
+}
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
   const node = document.createElement(tag);
@@ -162,7 +184,19 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   const notice = el("p", "notice");
   notice.setAttribute("role", "alert");
   const info = el("p", "notice info");
-  notices.append(notice, info);
+  const standing = el("p", "standing");
+  const standingWords = el("span", "standing-text");
+  const details = el("button", "info-btn", "ⓘ");
+  details.type = "button";
+  details.title = t.compatInfo;
+  details.setAttribute("aria-label", t.compatInfo);
+  details.addEventListener("click", () => {
+    const dialog = openDialog(app, { title: t.compatInfo, closeLabel: t.close, opener: details });
+    dialog.body.append(el("p", "dialog-text", t.compatDetails));
+  });
+  standing.append(standingWords, details);
+  standing.hidden = true;
+  notices.append(notice, info, standing);
   panel.append(status, side, opening, moves.element, navRow, bar, notices);
   const announcer = createAnnouncer();
   app.append(play, panel, announcer.element);
@@ -178,6 +212,12 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   const copyPgn = (opener: HTMLElement) => openPgnDialog(app, pgnOfGame(game), t, opener);
   const gameOver = createGameOver(t, { newGame: () => void game.newGame(), copyPgn, review: toMoves });
   board.element.append(gameOver.element);
+  const cards = createSetup(t, OWN_FEATURES, {
+    invite: (tc) => void game.invite(tc),
+    accept: () => void game.acceptInvitation(),
+    decline: () => void game.declineInvitation(),
+  });
+  board.element.append(cards.setup, cards.invitation);
 
   const sounds = new Sounds({ enabled: () => prefs.get().sound, ...options.sound });
 
@@ -228,8 +268,14 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
       mute.replaceChildren(speakerIcon(sound));
     }
     mute.setAttribute("aria-pressed", String(sound));
-    const end = view.end;
-    gameOver.render(view, end ? `${view.plies}|${end.why}|${end.result}|${record.fens[1] ?? ""}` : "", boardHadFocus);
+    // The contact's invitation takes the board's card place from the game-over card.
+    const end = view.invitation ? undefined : view.end;
+    gameOver.render(end ? view : { ...view, end: undefined }, end ? `${view.plies}|${end.why}|${end.result}|${record.fens[1] ?? ""}` : "", boardHadFocus);
+    cards.render(view);
+    const line = standingText(view, t);
+    standing.hidden = !line;
+    standingWords.textContent = line?.text ?? "";
+    details.hidden = !line?.details;
     announce(view);
     // Sounds: a change of the live game; else a step forward of the review (no end sound for that).
     const live = soundOf(seen, view);
@@ -254,7 +300,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     if (view.end) {
       const { result, why } = view.end;
       const head =
-        result === "1/2-1/2" ? t.drawn : view.me ? ((result === "1-0") === (view.me === "w") ? t.won : t.lost) : result === "1-0" ? t.whiteWins : t.blackWins;
+        result === "*" ? t.noResult : result === "1/2-1/2" ? t.drawn : view.me ? ((result === "1-0") === (view.me === "w") ? t.won : t.lost) : result === "1-0" ? t.whiteWins : t.blackWins;
       return `${head}: ${t[`why_${why}`]}`;
     }
     const check = view.inCheck ? `. ${t.check}` : "";
@@ -265,6 +311,10 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
         return `${view.turn === "w" ? t.whiteToMove : t.blackToMove}${check}`;
       case "toss":
         return view.peerOpen ? t.tossing : t.waitingPeer;
+      case "setup":
+        return view.peerOpen ? t.setupStatus : t.waitingPeer;
+      case "invited":
+        return view.peerOpen ? t.invitedStatus : t.waitingPeer;
       case "out-of-step":
         return t.outOfStep;
       default:
