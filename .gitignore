@@ -8,3 +8,6 @@ release
 *.pem
 test-results
 playwright-report
+
+# The bot, built for Node by `npm run bot`
+bot/dist/

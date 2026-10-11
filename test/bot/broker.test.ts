@@ -132,3 +132,29 @@ describe("the daemon's socket", () => {
     await expect(daemon.call("status")).rejects.toMatchObject({ code: "unavailable" });
   });
 });
+
+describe("the bot's broker, when frames go too fast", () => {
+  it("waits and sends a too-fast frame again, and gives up after five tries", async () => {
+    let fast = 2;
+    const waits: number[] = [], refused: string[] = [];
+    const { daemon, calls } = standIn(() => { if (fast-- > 0) throw new DaemonError("refused", "More than 48 frames in a second", "too-fast"); return { sent: true }; });
+    const broker = new DaemonBroker(daemon, { chat: CHAT, app: APP, version: "2.3.0", store: memoryStore(), refused: (r) => refused.push(r), sleep: async (ms) => { waits.push(ms); } });
+    await broker.chat.send({ k: "move" });
+    expect(calls).toHaveLength(3);
+    expect(waits).toEqual([300, 300]);
+    expect(refused).toEqual([]);
+    fast = 99;
+    await expect(broker.chat.send({ k: "move" })).rejects.toMatchObject({ reason: "too-fast" });
+    expect(calls).toHaveLength(8);
+    expect(refused).toEqual(["too-fast"]);
+  });
+
+  it("does not send again a frame refused for another reason: that is Chess's to handle", async () => {
+    const refused: string[] = [];
+    const { daemon, calls } = standIn(() => { throw new DaemonError("unavailable", "The chat is not live", "offline"); });
+    const broker = new DaemonBroker(daemon, { chat: CHAT, app: APP, version: "2.3.0", store: memoryStore(), refused: (r) => refused.push(r), sleep: async () => {} });
+    await expect(broker.chat.send(1)).rejects.toMatchObject({ reason: "offline" });
+    expect(calls).toHaveLength(1);
+    expect(refused).toEqual(["offline"]);
+  });
+});
