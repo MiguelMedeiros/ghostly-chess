@@ -13,6 +13,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "bot": "vite build --config bot/vite.config.ts --logLevel error && node bot/dist/main.mjs",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "check:bundle": "node scripts/bundle.mjs",
     "dev": "vite",

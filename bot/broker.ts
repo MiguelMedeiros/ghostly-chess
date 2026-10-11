@@ -13,7 +13,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { MiniAppApi, MiniAppContext, MiniAppJson, MiniAppPeerEvent } from "../src/vendor/miniApp.ts";
-import type { Daemon, DaemonEvent } from "./daemon.ts";
+import { DaemonError, type Daemon, type DaemonEvent } from "./daemon.ts";
 
 /** Where one chat's game is kept. */
 export interface Store {
@@ -51,7 +51,14 @@ export interface BrokerOptions {
   /** The profile's name in this chat: only when the app was served with `--grant name`. */
   name?: string;
   store: Store;
+  /** A frame the daemon did not send, and why (`details.reason`: `offline`, `peer-closed`, `too-fast`…). */
+  refused?: (reason: string) => void;
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** A frame refused as `too-fast` goes again after this long, this many times: the limit is 48 a second (WISP 1200). */
+const TOO_FAST_WAIT_MS = 300;
+const TOO_FAST_TRIES = 5;
 
 export class DaemonBroker implements MiniAppApi {
   private peer: string | null;
@@ -64,7 +71,11 @@ export class DaemonBroker implements MiniAppApi {
     this.off = daemon.onEvent((event) => this.heard(event));
   }
 
-  private heard(event: DaemonEvent): void {
+  /**
+   * An event of the daemon's. Public for the ones that came between `app.open` and this broker being made: the bot
+   * collects them and hands them over, so the contact's open is never missed when both sides open at once.
+   */
+  heard(event: DaemonEvent): void {
     if (event.chat !== this.options.chat || event.app !== this.options.app) return;
     if (event.type === "app.message") {
       // A frame for an app the contact has closed is never reported; one that comes is the contact's own, untrusted.
@@ -102,7 +113,18 @@ export class DaemonBroker implements MiniAppApi {
 
   chat = {
     send: async (value: MiniAppJson): Promise<void> => {
-      await this.daemon.call("app.send", { chat: this.options.chat, ref: this.options.app, data: value });
+      const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+      for (let tries = 1; ; tries++) {
+        try {
+          await this.daemon.call("app.send", { chat: this.options.chat, ref: this.options.app, data: value });
+          return;
+        } catch (error) {
+          const reason = error instanceof DaemonError ? error.reason ?? error.code : "error";
+          // Too many frames in a second is the sender's to wait out; any other refusal is Chess's to handle.
+          if (reason !== "too-fast" || tries >= TOO_FAST_TRIES) { this.options.refused?.(reason); throw error; }
+          await sleep(TOO_FAST_WAIT_MS);
+        }
+      }
     },
     on: ((event: "message" | "peer", listener: (data: never) => void) => {
       const set = (event === "message" ? this.messageListeners : this.peerListeners) as Set<(data: never) => void>;
