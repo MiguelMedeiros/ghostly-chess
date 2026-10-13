@@ -379,6 +379,8 @@ export class ChessController {
   private choosing = false;
   /** The peer's game id when the two sides hold different games. */
   private stepPeerGame: string | null = null;
+  /** The games the toss of the game held now gave up (in memory): a sync about one of them is stale. */
+  private gaveUp: string[] = [];
   private chess = new Chess();
   /** Every task in order; held until `start` has read the saved game, so what arrives meanwhile waits for it. */
   private queue: Promise<void>;
@@ -1392,6 +1394,13 @@ export class ChessController {
       }
       if (!this.dealOf(v, sync, 1) && !this.dealOf(v, sync, 2)) return this.notice("bad-message");
       if (this.game && this.game.g === g) return this.notice("bad-message");
+      // A game the toss of the game we hold gave up, or our last finished one: the contact's sync crossed that toss (its
+      // opening after a reconnect went before our reveal reached it). Stale, not another history: never out of step.
+      // Our game goes, so a contact still on the old one catches up from it.
+      if (this.game && (this.gaveUp.includes(g) || this.prev?.g === g)) {
+        if (this.answerSync(this.game, moves.length, x)) await this.sendSync();
+        return;
+      }
       return this.outOfStep(g);
     }
     const game = this.game!;
@@ -1895,6 +1904,7 @@ export class ChessController {
     this.samples = [];
     this.lastAck = this.pending = null;
     this.heard = this.mono();
+    this.gaveUp = this.flip?.a ?? [];
     this.flip = null;
     this.invitation = null;
     this.choosing = false;
