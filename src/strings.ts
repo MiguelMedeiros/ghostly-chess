@@ -153,6 +153,7 @@ export const en = {
   peerAsksTakeback: "Your contact asks to take back a move",
   takenBack: "Move taken back",
   notice_takebackDeclined: "Your contact declined the takeback.",
+  notice_drawDeclined: "Your contact declined the draw.",
   rematch: "Rematch",
   resignAsk: "Resign this game?",
   abort: "Abort",

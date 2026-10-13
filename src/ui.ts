@@ -76,9 +76,10 @@ const NOTICE_KEY: Record<Notice, StringKey> = {
   "clock-off": "notice_clockOff",
   "taken-back": "takenBack",
   "takeback-declined": "notice_takebackDeclined",
+  "draw-declined": "notice_drawDeclined",
 };
 /** Notices that report what happened rather than a fault: they are announced politely, not as alerts. */
-const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game", "declined", "taken-back", "takeback-declined"]);
+const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game", "declined", "taken-back", "takeback-declined", "draw-declined"]);
 
 /** The panel's width beside the board, and the smallest board side (24 px squares, WCAG 2.2's target size). */
 const PANEL_WIDTH = 240;
