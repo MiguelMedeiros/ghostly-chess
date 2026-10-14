@@ -4,6 +4,11 @@ What each published version of Chess changed, newest first. A version is publish
 `app.ghostlyapp`, is committed here and the [Ghostly store](https://github.com/MiguelMedeiros/ghostly-store) lists it
 ([docs/PUBLISHING.md](docs/PUBLISHING.md)). `sequence` is the number Ghostly orders versions by.
 
+## 2.3.1 (sequence 5)
+
+- Chess has its own icon (`icon.png` in the bundle, 512 x 512): the Ghostly ghost and a black knight on a green board,
+  drawn by `scripts/icon.mjs`. Ghostly showed the generic app mark before. Nothing else changed.
+
 ## 2.3.0 (sequence 4)
 
 The first version published from this repository, and the first since 1.0.2. Versions 1.1.0 to 2.2.0 were steps on

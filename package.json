@@ -1,7 +1,7 @@
 {
   "name": "ghostly-chess",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.3.1",
   "type": "module",
   "description": "Chess for two in a chat: a Ghostly mini-app that builds to one self-contained HTML file.",
   "license": "MIT",
@@ -17,6 +17,7 @@
     "check:bundle": "node scripts/bundle.mjs",
     "dev": "vite",
     "digest": "node scripts/digest.mjs",
+    "gen:icon": "node scripts/icon.mjs",
     "gen:openings": "node scripts/openings.mjs",
     "gen:pieces": "node scripts/pieces.mjs",
     "stage": "node scripts/stage.mjs",
