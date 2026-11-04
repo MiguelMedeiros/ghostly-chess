@@ -30,7 +30,7 @@
     "chess.js": "1.4.0"
   },
   "devDependencies": {
-    "@playwright/test": "1.63.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "26.6.2",
     "happy-dom": "20.14.5",
     "typescript": "5.9.3",

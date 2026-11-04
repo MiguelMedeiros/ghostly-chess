@@ -12,9 +12,11 @@ import { chess102Page, chess220Page, openSide, type Relay, type Side } from "./h
 const CHESS_102_DIGEST = "l5ozbABlwoZn7MBgzaQniVWT4shgPI10A_0Bi-fZENE";
 const CHESS_220_DIGEST = "pcTeVK9fRcGGezOkheBEEMFBZ3An1cTiBXyQf4dbj-I";
 
+// Near a square's top-left corner, not its centre: in WebKit (Playwright 1.64) the published 2.2.0 page lays a square
+// showing a move dot out as wide as the board, from where it starts. board.spec.ts checks that this build does not.
 async function click(side: Side, from: string, to: string): Promise<void> {
-  await side.frame.locator(`[data-square="${from}"]`).click();
-  await side.frame.locator(`[data-square="${to}"]`).click();
+  await side.frame.locator(`[data-square="${from}"]`).click({ position: { x: 8, y: 8 } });
+  await side.frame.locator(`[data-square="${to}"]`).click({ position: { x: 8, y: 8 } });
 }
 
 test("plays Scholar's mate against the published Chess 1.0.2", async ({ browser }) => {
