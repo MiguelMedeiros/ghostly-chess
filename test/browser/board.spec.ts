@@ -128,6 +128,33 @@ test.describe("layout", () => {
 });
 
 test.describe("a board that keeps its size", () => {
+  test("a selected piece's move dots and capture rings leave every square the size it was", async ({ browser }) => {
+    // Playwright 1.64's WebKit laid a square out as wide as the board once its move dot (an absolute ::after) showed,
+    // and pushed the rest of the rank off the board: e4 could no longer be clicked.
+    const side = await openSide(browser, { name: "solo", inChat: false, contextOptions: { viewport: { width: 560, height: 640 } } });
+    const page = side.page;
+    await expect(page.locator(".status")).toHaveText("White to move");
+    const squares = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".sq")].map((s) => {
+      const r = s.getBoundingClientRect();
+      return { square: s.dataset.square, x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+    }));
+    const start = await squares();
+    // 1. e4 d5, each square checked while its move dots show; then white's pawn has a move dot on e5 and a capture ring on d5.
+    for (const [from, to] of [["e2", "e4"], ["d7", "d5"]] as const) {
+      await page.locator(`[data-square="${from}"]`).click();
+      await expect(page.locator(`[data-square="${to}"]`)).toHaveClass(/\btarget\b/);
+      expect(await squares(), `with ${from}'s move dots`).toEqual(start);
+      await page.locator(`[data-square="${to}"]`).click();
+    }
+    await page.locator('[data-square="e4"]').click();
+    await expect(page.locator('[data-square="e5"]')).toHaveClass(/\btarget\b/);
+    await expect(page.locator('[data-square="d5"]')).toHaveClass(/\bcapture\b/);
+    expect(await squares()).toEqual(start);
+    await page.locator('[data-square="d5"]').click();
+    await expect(page.locator('[data-square="d5"]')).toHaveText(/♟/);
+    await side.context.close();
+  });
+
   for (const [width, height] of [[320, 568], [560, 640]] as const) {
     test(`in a chat at ${width}x${height}, the first move, a draw offer and a notice leave the board as it was`, async ({ browser }) => {
       const { white, black, sides } = await chatPair(browser, "top", { viewport: { width, height } });
