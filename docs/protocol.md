@@ -63,8 +63,8 @@ Ends add `{"why": "time", "by": colour}`, `{"why": "aborted"}` (only before ply 
 result).
 
 Every 2.x reads every 2.x frame. What a side does with them is gated by the features both hellos name: `clock`,
-`takeback`, `rematch`, `abort` and `names`. A build names only what it implements (2.0.0 names none, 2.1.0 `clock`,
-2.2.0 also `takeback`, `rematch` and `abort`, 2.3.0 also `names`), so a later Chess never sends it a clock or a takeback it cannot run. The gate holds on receipt too: an invitation with `tc`
+`takeback`, `rematch`, `abort`, `names` and `settle`. A build names only what it implements (2.0.0 names none, 2.1.0 `clock`,
+2.2.0 also `takeback`, `rematch` and `abort`, 2.3.0 also `names`, the version after 2.3.1 also `settle`), so a later Chess never sends it a clock or a takeback it cannot run. The gate holds on receipt too: an invitation with `tc`
 without `clock` named by both, or with `r` without `rematch`, is shown but cannot be accepted (Accept is off, with
 the reason), and a sync's `time` end needs `clock`, its `aborted` end `abort`.
 
@@ -163,7 +163,8 @@ comes in a version 1 frame.
   - `aborted` only before ply 2, with `abort` named by both;
   - `disputed` only when this side sent or received a claim at that ply.
 
-  Anything else is a bad message and changes nothing.
+  Anything else is a bad message and changes nothing. A `sync` whose end differs from this side's own, on the same
+  history, is two ends that crossed: see Ends that cross.
 
 ## Game flow (Chess 2.2.0)
 
@@ -183,6 +184,35 @@ resignation, and both sides hold the same history.
 
 A side answers a `sync` with its own at most once a second for the same disagreement (the two ply counts and ends),
 so two sides that disagree never send syncs back and forth for ever.
+
+### Ends that cross (the `settle` feature)
+
+Two ends cross when each side ends the game before the other's end reaches it: a draw accepted as the offerer
+resigns, both resigning at once, a resignation as the contact's flag falls. Each side then holds its own end. Both
+settle to the same one:
+
+1. **The rule** (`settleEnd` in `src/protocol.ts`): on the same history (the same plies and takeback epoch), the end
+   whose kind comes first in `time`, `resign`, `aborted`, `disputed`, `agreed` stands; of two resignations, the one
+   of the side to move. Both sides compute it from the same two ends, whichever is their own.
+2. **Live.** A `resign`, a `flag` by its sender at this side's ply count, or a `draw` accept that arrives after this
+   side's own, different end, with `settle` named by both: this side sends its `sync`, at most once a second for the
+   same disagreement. Those frames do not say which plies their sender held; the syncs do.
+3. **A `sync`** with the same history and a different `x`: when the rule picks the sender's end, this side takes it,
+   and only when it could have reached it (the checks in Play: a peer still ends a game only with its own loss, or
+   with no result); when the rule picks this side's own, it keeps it and answers with its `sync` (to a contact that
+   names `settle`), at most once a second, so the sender takes it. A `sync` with the same end changes nothing and is
+   not answered, so the exchange stops once both hold the rule's end. Each side's `sync` on a reopen or a reconnect
+   settles the same way. The settled end is saved as `x`, as any end; nothing else is stored.
+4. **An older contact** (2.3.1 or older: no `settle`) keeps its own end and never answers. This side still applies
+   the rule to the contact's `sync` (sent on the contact's next open or a reconnect) and takes the contact's end when
+   the rule picks it, so both then show it. When the rule picks this side's own, each shows its own, as before this
+   rule, and nothing is sent back for it.
+
+Why this order: an agreement stands only when nothing crossed it (the other end shows that side had moved on from
+its offer, and a side that already ended can no longer check an accept against its offer). A flag fell at a moment
+the flagger's own clock measured (C2, C6), and once its time is up a side's later actions count for nothing; a
+resignation carries no time. Two resignations have no order, and the side to move is the one the game waited for.
+No end carries a time of its own, so each side's clock cannot be gamed to win a crossing.
 
 ### Takebacks (the `takeback` feature)
 

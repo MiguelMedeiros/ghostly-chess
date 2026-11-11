@@ -49,7 +49,7 @@ export const MAX_PLIES = 2000;
 /** Game ids a seek may give up: the sender's current game and the one the peer showed it. */
 export const MAX_ABANDON = 2;
 /** The features a hello may name. What a side does with the other's frames is gated by the features both name. */
-export const FEATURE_NAMES = ["clock", "takeback", "rematch", "abort", "names"] as const;
+export const FEATURE_NAMES = ["clock", "takeback", "rematch", "abort", "names", "settle"] as const;
 export type Feature = (typeof FEATURE_NAMES)[number];
 /** Bounds of a hello's feature list: names a later version adds are kept, within these. */
 export const MAX_FEATURES = 16;
@@ -69,6 +69,22 @@ export type Envelope = 1 | 2;
 export type TimeControl = [number, number];
 /** How a game ended other than on the board. Version 1 has only resign and agreed. */
 export type GameEnd = { why: "resign"; by: Colour } | { why: "agreed" } | { why: "time"; by: Colour } | { why: "aborted" } | { why: "disputed" };
+
+/** The order in which crossed ends stand (settleEnd): a loss on time first, an agreed draw last. */
+export const END_ORDER: readonly GameEnd["why"][] = ["time", "resign", "aborted", "disputed", "agreed"];
+
+/**
+ * Which of two ends of one game stands when they crossed (each side ended the game before the other's end reached
+ * it), with `plies` on both boards. Both sides compute it from the same two ends, so it does not matter which one is
+ * their own: the earlier kind in END_ORDER, and of two resignations the one of the side to move.
+ */
+export function settleEnd(a: GameEnd, b: GameEnd, plies: number): GameEnd {
+  const ra = END_ORDER.indexOf(a.why);
+  const rb = END_ORDER.indexOf(b.why);
+  if (ra !== rb) return ra < rb ? a : b;
+  const toMove: Colour = plies % 2 === 0 ? "w" : "b";
+  return "by" in b && b.by === toMove ? b : a;
+}
 export type DrawOption = "offer" | "accept" | "decline";
 export type TakebackOption = "ask" | "accept" | "decline";
 
