@@ -295,7 +295,9 @@ the mover's time before its ply n, I the increment, both in ms. The code is `src
   clamp, at the clamped ply only.
 - **C6. Self-flag.** When its own time reaches 0 on its turn, a side locks its board and sends `flag {g, n, by: self}`.
   The result is a loss, or a draw when the opponent has only K, K+B or K+N (chess.com's rule; FIDE would also ask
-  whether any helpmate exists). A side that comes back past its time flags at once; its `sync` carries the end.
+  whether any helpmate exists). A side that comes back past its time flags at once; its `sync` carries the end. A
+  resignation, a draw offer or answer, or a takeback ask made on its turn once its time is up (before its next tick)
+  sends the flag instead, as a move does: the game was lost on time first.
 - **C7. Claim.** The observer sends `flag {g, n, by: mover}` only with a proof whose E > P + G, or when its clamped
   view of the mover is at or below 0; wall time alone never makes a claim. The mover answers from its own clock for
   ply n: now when it holds n plies, at its move when it already made ply n. It accepts with `flag {by: self, n}` only
