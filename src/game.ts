@@ -1460,12 +1460,14 @@ export class ChessController {
     } else if (!isPrefix(moves, game.m)) {
       return this.outOfStep(g);
     }
-    if (x && !next.x) {
-      if (this.acceptEnd(next, x, moves.length)) {
-        next = { ...noOffer(next), x };
+    // The sender's resignation came first in its own frame, which names no ply: this sync says where it resigned.
+    const resigned = x?.why === "resign" && next.x !== undefined && sameEnd(x, next.x);
+    if (x && (!next.x || resigned)) {
+      if (resigned || this.acceptEnd(next, x, moves.length)) {
+        if (!resigned) next = { ...noOffer(next), x };
         // The sender resigned, aborted or accepted our draw one ply short of ours, and that ply is this side's own: a
-        // move made while the sender was away, or that crossed its abort or accept, which it never saw. The game ended
-        // before it, so it goes (also a mate), and both sides hold the same history.
+        // move made while the sender was away, or that crossed its resignation, abort or accept, which it never saw.
+        // The game ended before it, so it goes (also a mate), and both sides hold the same history.
         const last = game.m.length - 1;
         if ((x.why === "resign" || x.why === "aborted" || x.why === "agreed") && moves.length === last && last >= 0 && (last % 2 === 0) === (game.me === "w")) {
           const chess = replay(moves);
