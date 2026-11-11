@@ -214,7 +214,8 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .offer { flex: 1 1 100%; text-align: center; font-size: 14px; font-weight: 600; }
 
 /* ---------- the board ---------- */
-.board-wrap { position: relative; width: var(--side); height: var(--side); flex: none; border-radius: 4px; }
+/* A size container: the cards on it tighten on a short board (below). */
+.board-wrap { position: relative; width: var(--side); height: var(--side); flex: none; border-radius: 4px; container-type: size; }
 /* Reviewing a past position: a ring round the board, so it never passes for the live game. */
 .board-wrap.reviewing { box-shadow: 0 0 0 3px var(--accent); }
 
@@ -231,9 +232,10 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .over-reason { margin: 2px 0 10px; color: var(--muted); }
 .over-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 
-/* The new-game panel and the contact's invitation: cards on the board, like the game-over card. */
+/* The new-game panel and the contact's invitation: cards on the board, like the game-over card. On a short board a card
+   may reach over the name strips above and below it (28 px and the 8 px gap each), so Invite never hides in a scroll. */
 .card {
-  position: absolute; left: 50%; top: 50%; z-index: 7; transform: translate(-50%, -50%); width: min(300px, 92%); max-height: 96%;
+  position: absolute; left: 50%; top: 50%; z-index: 7; transform: translate(-50%, -50%); width: min(300px, 92%); max-height: calc(100% + 72px);
   overflow: auto; padding: 12px; border-radius: 10px; text-align: center; background: var(--surface); color: var(--fg);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
@@ -248,6 +250,15 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .act.preset[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .act.preset-unlimited { grid-column: span 3; }
 .invite-words { font-size: 15px; }
+/* A board too short for the new-game panel as drawn above (279 px high): tighter, its presets still 38 px high. */
+@container (max-height: 295px) {
+  /* As wide as the board and the page's 8 px on each side of it allow, so "10 | 0" keeps one line on a 192 px board. */
+  .card { width: min(300px, calc(100% + 12px)); padding: 8px; }
+  .card-head { margin-bottom: 4px; }
+  .presets { gap: 4px; }
+  .act.preset { min-height: 38px; padding: 3px 2px; font-size: 14px; white-space: nowrap; }
+  .card-actions { margin-top: 6px; }
+}
 .board {
   width: 100%; height: 100%; display: grid; grid-template-rows: repeat(8, 1fr); border-radius: 4px; overflow: hidden;
   /* Set before any touch: a touch-action set when a drag starts is too late, the browser has chosen to pan. */

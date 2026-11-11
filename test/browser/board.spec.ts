@@ -127,6 +127,45 @@ test.describe("layout", () => {
   }
 });
 
+test.describe("the new-game panel", () => {
+  // On a short board (a phone, a chat-app window, a phone on its side) the panel used to be taller than the board
+  // allowed, so Invite hid under the panel's bottom edge and showed only after a scroll inside it.
+  for (const [width, height] of [[320, 568], [375, 568], [320, 480], [560, 640], [844, 390], [640, 360]] as const) {
+    test(`at ${width}x${height} it shows every control, Invite included, without a scroll`, async ({ browser }) => {
+      const sides = new Map<string, Side>();
+      const contextOptions = { viewport: { width, height } };
+      const ana = await openSide(browser, { name: "ana", sides, contextOptions });
+      const bob = await openSide(browser, { name: "bob", sides, contextOptions });
+      await expect(ana.frame.locator(".setup .invite-btn")).toBeEnabled();
+      const fit = await ana.frame.evaluate(() => {
+        const card = document.querySelector<HTMLElement>(".setup")!;
+        const box = card.getBoundingClientRect();
+        const outside = [...card.querySelectorAll("button")].filter((b) => {
+          const r = b.getBoundingClientRect();
+          return r.top < box.top || r.bottom > box.bottom;
+        });
+        return {
+          hidden: card.scrollHeight - card.clientHeight,
+          outside: outside.map((b) => b.textContent),
+          top: box.top,
+          bottom: box.bottom,
+          smallest: Math.min(...[...card.querySelectorAll("button")].map((b) => b.getBoundingClientRect().height)),
+          // A preset's words keep one line on a narrow board, and fit inside it.
+          clipped: [...card.querySelectorAll(".preset")].filter((b) => b.scrollWidth > b.clientWidth).map((b) => b.textContent),
+        };
+      });
+      expect(fit.hidden).toBeLessThanOrEqual(0);
+      expect(fit.outside).toEqual([]);
+      expect(fit.top).toBeGreaterThanOrEqual(0);
+      expect(fit.bottom).toBeLessThanOrEqual(height);
+      expect(fit.smallest).toBeGreaterThanOrEqual(24);
+      expect(fit.clipped).toEqual([]);
+      await ana.context.close();
+      await bob.context.close();
+    });
+  }
+});
+
 test.describe("a board that keeps its size", () => {
   for (const [width, height] of [[320, 568], [560, 640]] as const) {
     test(`in a chat at ${width}x${height}, the first move, a draw offer and a notice leave the board as it was`, async ({ browser }) => {
