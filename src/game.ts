@@ -1894,6 +1894,9 @@ export class ChessController {
     this.turnStart = this.tsMono = undefined;
     this.samples = [];
     this.lastAck = this.pending = null;
+    // A takeback ask is for the game it was made in: one left unanswered as that game ended goes with it.
+    this.peerAsk = null;
+    this.lapsedAsk = null;
     this.heard = this.mono();
     this.flip = null;
     this.invitation = null;

@@ -325,6 +325,32 @@ describe("a takeback that crosses another frame", () => {
     expect(saved(b).m).toEqual(["e2e4", "e7e5", "g1f3", "b8c6", "f1c4"]);
     expect(b.game.view().takeback).toBeUndefined();
   });
+
+  it("ends with its game: an ask left unanswered at a resignation is not in the rematch", async () => {
+    const sides = await startChat();
+    const { white, black } = sides;
+    await play(sides, "e2e4", "e7e5", "g1f3", "b8c6");
+    await black.game.takeback();
+    await settle(white, black);
+    expect(white.game.view().takeback).toBe("peer");
+    await white.game.resign();
+    await settle(white, black);
+    await black.game.rematch();
+    await settle(white, black);
+    await white.game.acceptInvitation();
+    await settle(white, black);
+    for (const side of [white, black]) {
+      expect(side.game.view().phase).toBe("playing");
+      expect(side.game.view().takeback).toBeUndefined();
+    }
+    // Answering it anyway changes nothing in the new game.
+    await white.game.answerTakeback(true);
+    await settle(white, black);
+    for (const side of [white, black]) {
+      expect(saved(side).m).toEqual([]);
+      expect(saved(side).tb).toBeUndefined();
+    }
+  });
 });
 
 describe("a takeback in a timed game", () => {
