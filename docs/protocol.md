@@ -193,9 +193,11 @@ so two sides that disagree never send syncs back and forth for ever.
 2. The other side shows it only when `h` is its own ply count and `n` is the ply its contact's last move came from;
    anything else is stale. Without `h`, a one-ply ask that crossed the contact's move would read as a two-ply ask
    with the same `n`. A move by the other side lets the ask lapse, and an ask that lapsed or was declined is not shown
-   again. While its ask waits, the asker does not move, resign, abort, answer a draw offer or flag itself (its clock
-   runs, and the contact claims as usual, C7): each of those could cross the accept. When both ask at once, the ask
-   with the smaller `n` stands and the other lapses, on both sides alike.
+   again. A declined ask that comes again (the asker sends it on the contact's open, so the decline was lost in a
+   session gap) is declined again, at most once a second. While its ask waits, the asker does not move, resign,
+   abort, answer a draw offer or flag itself (its clock runs, and the contact claims as usual, C7): each of those could
+   cross the accept. When both ask at once, the ask with the smaller `n` stands and the other lapses, on both sides
+   alike.
 3. `decline` changes nothing. `accept`: both sides cut the moves to `n` plies and keep `k` for them, so both clocks
    are as they were after ply n-1. The epoch `tb` goes up by one. The asker is to move: its turn starts at the accept
    (`tw`), and so does the other side's bound on it (`ts`, C4). A clamp on a ply taken back goes with it (`ko`, C5).
