@@ -295,6 +295,20 @@ function endingOf(chess: Chess, plies: number, x: GameEnd | undefined): Ending |
   return boardEnding(chess, plies);
 }
 
+/**
+ * The verbose history of `chess` when it is `before`'s position with one more ply, else null. chess.js's history()
+ * takes back and replays every ply to name it (SAN and FEN each), so reading it whole at each move cost a long game
+ * its whole length per ply (about 100 ms at 1500 plies in Chromium); here only the new ply is taken back and played
+ * again. Every game starts from the initial position, so the move number and the turn give the ply count.
+ */
+function onePlyOn(chess: Chess, before: { fen: string; plies: number; moves: Move[] }): Move[] | null {
+  if ((chess.moveNumber() - 1) * 2 + (chess.turn() === "b" ? 1 : 0) !== before.plies + 1) return null;
+  const last = chess.undo();
+  if (!last) return null;
+  chess.move({ from: last.from, to: last.to, promotion: last.promotion });
+  return last.before === before.fen ? [...before.moves, last] : null;
+}
+
 function lastMoveOf(move: Move): LastMove {
   const { from, to, san, colour, piece, captured, promotion, castle } = plyOf(move);
   const out: LastMove = { from, to, san, colour, piece };
@@ -529,7 +543,7 @@ export class ChessController {
     const fen = chess.fen();
     const cached = this.boardCache;
     if (cached && cached.chess === chess && cached.fen === fen) return cached;
-    const history = chess.history({ verbose: true });
+    const history = (cached?.chess === chess && onePlyOn(chess, cached)) || chess.history({ verbose: true });
     const last = history[history.length - 1];
     const plies = history.length;
     const fresh = { chess, fen, plies, moves: history, last: last ? lastMoveOf(last) : undefined, ending: boardEnding(chess, plies), inCheck: chess.inCheck(), targets: new Map() };
