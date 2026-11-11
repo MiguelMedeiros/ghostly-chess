@@ -223,6 +223,42 @@ describe("today's Chess with Chess 1.0.2", () => {
     expect(now.notices).toEqual([]);
   });
 
+  it("ends a draw 1.0.2 accepted as today's offerer moved at the offer's ply on both sides: the move goes", async () => {
+    for (const accept of [true, false]) {
+      const [a, b] = chatPair("1.0.2", "2.3.1");
+      const old = await open102(a);
+      const now = await openNew(b);
+      await settle(old, now);
+      const nowGame = now.game as ChessController;
+      // Today's Chess to move: e4 e5 when it is white, e4 e5 Nf3 when it is black.
+      const white = nowGame.view().me === "w";
+      const opening = white ? ["e2e4", "e7e5"] : ["e2e4", "e7e5", "g1f3"];
+      await play(old, now, ...opening);
+      await nowGame.offerDraw();
+      await settle(old, now);
+      expect((old.game as Legacy).view().drawOffer).toBe("peer");
+      // 1.0.2 answers before today's move reaches it; the move clears the offer on both sides, as 1.0.2 does.
+      await Promise.all([white ? nowGame.move("g1", "f3") : nowGame.move("b8", "c6"), (old.game as Legacy).answerDraw(accept)]);
+      await settle(old, now);
+      if (accept) {
+        for (const side of [old, now]) {
+          expect(side.game.view().end, side.broker.name).toEqual({ result: "1/2-1/2", why: "agreed" });
+          expect(saved(side).m, side.broker.name).toEqual(opening);
+        }
+        // 1.0.2 takes the crossing move, after its end, as an invalid move: its own way, unchanged.
+        expect(old.notices).toEqual(["invalid-move"]);
+      } else {
+        for (const side of [old, now]) {
+          expect(side.game.view().phase, side.broker.name).toBe("playing");
+          expect(saved(side).m, side.broker.name).toHaveLength(opening.length + 1);
+        }
+        expect(old.notices).toEqual([]);
+      }
+      expect(now.notices).toEqual([]);
+      expectOnly102Frames(now);
+    }
+  });
+
   it("continues a game 1.0.2 saved mid-way after one side updates: the record migrates and the game id stays", async () => {
     const [a, b] = chatPair("1.0.2", "1.0.2");
     const ana = await open102(a);
