@@ -253,9 +253,10 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 /* A board too short for the new-game panel as drawn above (279 px high): tighter, its presets still 38 px high. */
 @container (max-height: 295px) {
   /* As wide as the board and the page's 8 px on each side of it allow, so "10 | 0" keeps one line on a 192 px board. */
-  .card { width: min(300px, calc(100% + 12px)); padding: 8px 12px; }
+  .card { width: min(300px, calc(100% + 12px)); padding: 8px; }
   .card-head { margin-bottom: 4px; }
-  .act.preset { min-height: 38px; padding-block: 3px; }
+  .presets { gap: 4px; }
+  .act.preset { min-height: 38px; padding: 3px 2px; font-size: 14px; white-space: nowrap; }
   .card-actions { margin-top: 6px; }
 }
 .board {

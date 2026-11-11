@@ -150,6 +150,8 @@ test.describe("the new-game panel", () => {
           top: box.top,
           bottom: box.bottom,
           smallest: Math.min(...[...card.querySelectorAll("button")].map((b) => b.getBoundingClientRect().height)),
+          // A preset's words keep one line on a narrow board, and fit inside it.
+          clipped: [...card.querySelectorAll(".preset")].filter((b) => b.scrollWidth > b.clientWidth).map((b) => b.textContent),
         };
       });
       expect(fit.hidden).toBeLessThanOrEqual(0);
@@ -157,6 +159,7 @@ test.describe("the new-game panel", () => {
       expect(fit.top).toBeGreaterThanOrEqual(0);
       expect(fit.bottom).toBeLessThanOrEqual(height);
       expect(fit.smallest).toBeGreaterThanOrEqual(24);
+      expect(fit.clipped).toEqual([]);
       await ana.context.close();
       await bob.context.close();
     });
