@@ -4,6 +4,14 @@ What each published version of Chess changed, newest first. A version is publish
 `app.ghostlyapp`, is committed here and the [Ghostly store](https://github.com/MiguelMedeiros/ghostly-store) lists it
 ([docs/PUBLISHING.md](docs/PUBLISHING.md)). `sequence` is the number Ghostly orders versions by.
 
+## Unreleased
+
+- With a contact on Chess 1.0.2 (or a build without takebacks, such as 2.0 or 2.1), a draw they accept as you make
+  your next move now ends the game agreed on both sides, at the move you offered on: your move is taken back. Before,
+  they saw the draw, and you kept playing with "bad message" notices, also after a reconnect. A draw they decline that
+  way no longer shows a notice. When they offer and you accept as they move, the two games still end apart: only their
+  side can take that move back.
+
 ## 2.3.1 (sequence 5)
 
 - Chess has its own icon (`icon.png` in the bundle, 512 x 512): the Ghostly ghost and a black knight on a green board,
