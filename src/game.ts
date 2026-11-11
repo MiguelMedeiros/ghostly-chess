@@ -759,6 +759,7 @@ export class ChessController {
     return this.enqueue(async () => {
       const view = this.view();
       if (view.phase !== "playing" || !this.game || this.claiming() || this.asking()) return;
+      if (await this.flagFirst()) return;
       this.game = { ...noOffer(this.game), x: { why: "resign", by: this.game.me } };
       await this.saveGame();
       this.changed();
@@ -770,6 +771,7 @@ export class ChessController {
   offerDraw(): Promise<void> {
     return this.enqueue(async () => {
       if (this.view().phase !== "playing" || !this.peerOpen || !this.game || this.game.d === "me" || this.claiming()) return;
+      if (await this.flagFirst()) return;
       if (this.game.d === "peer") return this.answerDrawNow(true);
       // One offer per own move.
       if (this.offered === this.ownKey(this.game)) return;
@@ -795,6 +797,7 @@ export class ChessController {
     return this.enqueue(async () => {
       const game = this.game;
       if (!game || !this.view().canTakeback) return;
+      if (await this.flagFirst()) return;
       const n = lastPlyOf(game.me, game.m.length);
       this.asked = this.key(game, n);
       this.game = { ...game, q: n };
@@ -1744,6 +1747,7 @@ export class ChessController {
 
   private async answerDrawNow(accept: boolean): Promise<void> {
     if (!this.game || this.game.d !== "peer" || this.view().phase !== "playing" || this.claiming() || this.asking()) return;
+    if (await this.flagFirst()) return;
     const n = this.game.dn ?? this.game.m.length;
     this.game = accept ? { ...noOffer(this.game), x: { why: "agreed" } } : noOffer(this.game);
     await this.saveGame();
@@ -1775,6 +1779,16 @@ export class ChessController {
   private ownOut(): boolean {
     const left = this.ownLeft();
     return left !== undefined && left <= 0 && timedPly(this.game!.m.length) && !this.flip && !this.choosing && !this.stepPeerGame;
+  }
+
+  /**
+   * Out of time on this side's own turn: the flag goes instead of the action (a resignation, a draw offer or answer,
+   * a takeback ask), as it does instead of a move (C6). The game was lost on time before the action. True when so.
+   */
+  private async flagFirst(): Promise<boolean> {
+    if (!this.ownOut()) return false;
+    await this.selfFlag();
+    return true;
   }
 
   /** This side's time ran out (C6): the board locks, and the flag goes. A loss, or a draw against K, K+B or K+N. */
