@@ -116,6 +116,8 @@ export const en = {
   why_aborted: "aborted",
   why_disputed: "clocks disagree",
   noResult: "No result",
+  /** How a game ended, under the board: "You win: checkmate". */
+  ended: "{head}: {why}",
   notice_declined: "Your contact declined the invitation.",
   setupTitle: "New game",
   setupHint: "The toss decides who plays white.",
