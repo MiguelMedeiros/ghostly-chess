@@ -429,6 +429,8 @@ export class ChessController {
   private offered = "";
   /** Our ask that lapsed as the contact's Chess closed: an accept of it that was already on its way still counts. */
   private lapsedAsk: { n: number; tb: number; plies: number } | null = null;
+  /** When an ask declined here was declined again (its decline lost in a session gap). */
+  private lastDeclineAgain = -Infinity;
   /** The last sync answered from onSync, and when: the same disagreement is answered at most once a second. */
   private lastSyncAnswer = { key: "", at: -Infinity };
   /** The takeback epoch whose lost accept we sent again, and when: ts moves once per epoch (C4). */
@@ -1687,7 +1689,15 @@ export class ChessController {
     const game = this.game;
     if (!game || game.g !== g || this.flip || this.ended() || !this.has("takeback")) return;
     if (option === "ask") {
-      if (h !== game.m.length || n !== lastPlyOf(other(game.me), game.m.length) || this.refused === this.key(game, n)) return;
+      if (h !== game.m.length || n !== lastPlyOf(other(game.me), game.m.length)) return;
+      // Declined here already: the contact still holds it, so our decline never got there (a session gap). The asker
+      // sends its ask again as the session comes back; the decline goes again (at most once a second, so a flood of
+      // asks is not echoed), and the ask is not shown.
+      if (this.refused === this.key(game, n)) {
+        if (this.now() - this.lastDeclineAgain < RESYNC_GAP_MS) return;
+        this.lastDeclineAgain = this.now();
+        return void (await this.send({ k: "takeback", g, n, o: "decline" }));
+      }
       this.heard = this.mono();
       if (game.q !== undefined) {
         if (game.q < n) return;
