@@ -62,6 +62,7 @@ import {
   NAMES_SINCE,
   parseMessage,
   sameTerms,
+  settleEnd,
   UCI,
   V1_KINDS,
   VERSION,
@@ -80,10 +81,10 @@ import { commitment, cryptoRandom, deal, deal2, newSalt, type Random } from "./t
 export type { SavedFlip, SavedGame, SavedPrev };
 
 /**
- * The features this build implements and names in its hello. The protocol knows five (FEATURE_NAMES); a build names
+ * The features this build implements and names in its hello. The protocol knows six (FEATURE_NAMES); a build names
  * only what it does, so a later Chess never sends this one a clock or a takeback it cannot run.
  */
-export const OWN_FEATURES: readonly Feature[] = ["clock", "takeback", "rematch", "abort", "names"];
+export const OWN_FEATURES: readonly Feature[] = ["clock", "takeback", "rematch", "abort", "names", "settle"];
 
 /**
  * A value as the broker takes it: strict JSON, made by a round trip through JSON. The broker refuses a value with an
@@ -759,6 +760,7 @@ export class ChessController {
     return this.enqueue(async () => {
       const view = this.view();
       if (view.phase !== "playing" || !this.game || this.claiming() || this.asking()) return;
+      if (await this.flagFirst()) return;
       this.game = { ...noOffer(this.game), x: { why: "resign", by: this.game.me } };
       await this.saveGame();
       this.changed();
@@ -770,6 +772,7 @@ export class ChessController {
   offerDraw(): Promise<void> {
     return this.enqueue(async () => {
       if (this.view().phase !== "playing" || !this.peerOpen || !this.game || this.game.d === "me" || this.claiming()) return;
+      if (await this.flagFirst()) return;
       if (this.game.d === "peer") return this.answerDrawNow(true);
       // One offer per own move.
       if (this.offered === this.ownKey(this.game)) return;
@@ -795,6 +798,7 @@ export class ChessController {
     return this.enqueue(async () => {
       const game = this.game;
       if (!game || !this.view().canTakeback) return;
+      if (await this.flagFirst()) return;
       const n = lastPlyOf(game.me, game.m.length);
       this.asked = this.key(game, n);
       this.game = { ...game, q: n };
@@ -1478,6 +1482,14 @@ export class ChessController {
           }
         }
       } else this.notice("bad-message");
+    } else if (x && next.x && !sameEnd(x, next.x) && moves.length === next.m.length && this.own.includes("settle")) {
+      // Two ends that crossed, on the same history: the one settleEnd picks stands, on both sides alike. The sender's,
+      // only when this side could have reached it (a peer cannot end a game by claiming any end); ours is answered
+      // below, so the sender settles too.
+      if (sameEnd(settleEnd(next.x, x, moves.length), x)) {
+        if (this.acceptEnd(next, x, moves.length)) next = { ...noOffer(next), x };
+        else this.notice("bad-message");
+      }
     }
     // The sender's standing draw offer (version 2 only): made at this very ply, or one ply back when that ply is the
     // sender's own, which an offer stands through.
@@ -1498,7 +1510,10 @@ export class ChessController {
     // sender gets the matching history too: it may have gone out of step on our longer one meanwhile. When the sync
     // shows the peer lacked our last ply, it gets it only now: our ply's ts moves to this send (C4).
     const lacked = moves.length < next.m.length && !next.x && this.chess.turn() !== next.me;
-    if ((moves.length < next.m.length || (next.x && !x) || dropped) && (dropped || this.answerSync(next, moves.length, x))) {
+    // Two ends that crossed, ours the one that stands: the sender gets it. Only then, so that two sides that cannot
+    // settle (the sender's end refused here) never answer each other's syncs for ever.
+    const oursStands = Boolean(x && next.x && !sameEnd(x, next.x) && moves.length === next.m.length && this.has("settle") && sameEnd(settleEnd(next.x, x, moves.length), next.x));
+    if ((moves.length < next.m.length || (next.x && !x) || dropped || oursStands) && (dropped || this.answerSync(next, moves.length, x))) {
       // Our ply's bound moves once per ply the contact lacked: a sync replayed again and again cannot hold it.
       const key = `${next.g}:${next.tb ?? 0}:${next.m.length}`;
       const again = lacked && this.lackedKey !== key;
@@ -1550,9 +1565,20 @@ export class ChessController {
     }
   }
 
+  /**
+   * The contact's end (a resign, flag or draw accept frame) came after this side's own, and differs: the two crossed.
+   * With a contact that settles, our sync goes, at most once a second, and each side settles from the other's sync
+   * (onSync), where both histories are compared. The frames alone cannot say whether the two hold the same plies.
+   */
+  private async endCrossed(theirs: GameEnd): Promise<void> {
+    const game = this.game;
+    if (!game?.x || sameEnd(game.x, theirs) || !this.has("settle")) return;
+    if (this.answerSync(game, game.m.length, theirs)) await this.sendSync();
+  }
+
   private async onResign(g: string): Promise<void> {
     if (!this.game || this.game.g !== g || this.flip) return;
-    if (this.ended()) return;
+    if (this.ended()) return this.endCrossed({ why: "resign", by: other(this.game.me) });
     this.game = { ...noOffer(this.game), x: { why: "resign", by: other(this.game.me) } };
     await this.saveGame();
     this.changed();
@@ -1569,7 +1595,7 @@ export class ChessController {
     if (option === "accept" && d === "me" && !this.game.x && n !== undefined && n === this.game.dn && plies === n + 1 && plyBy(n) === this.game.me) {
       return this.sendSync();
     }
-    if (this.ended()) return;
+    if (this.ended()) return option === "accept" ? this.endCrossed({ why: "agreed" }) : undefined;
     if (option === "offer") {
       // An offer about another position is no offer.
       if (n !== undefined && n !== plies) return;
@@ -1635,7 +1661,10 @@ export class ChessController {
     // A claim on our ply n, which we made already (it crossed the claim), is answered, even when that ply ended the
     // game on the board (a mate): no end off the board yet. Anything else not at n, or after an end, is stale.
     const crossed = Boolean(game.tc) && by === game.me && !game.x && n === game.m.length - 1 && this.chess.turn() === sender;
-    if (!crossed && (this.ended() || n !== game.m.length)) return;
+    if (!crossed && (this.ended() || n !== game.m.length)) {
+      if (by === sender && n === game.m.length) await this.endCrossed({ why: "time", by: sender });
+      return;
+    }
     if (!game.tc || !timedPly(n)) return this.notice("bad-message");
     this.heard = this.mono();
     if (by === sender) {
@@ -1744,6 +1773,7 @@ export class ChessController {
 
   private async answerDrawNow(accept: boolean): Promise<void> {
     if (!this.game || this.game.d !== "peer" || this.view().phase !== "playing" || this.claiming() || this.asking()) return;
+    if (await this.flagFirst()) return;
     const n = this.game.dn ?? this.game.m.length;
     this.game = accept ? { ...noOffer(this.game), x: { why: "agreed" } } : noOffer(this.game);
     await this.saveGame();
@@ -1775,6 +1805,16 @@ export class ChessController {
   private ownOut(): boolean {
     const left = this.ownLeft();
     return left !== undefined && left <= 0 && timedPly(this.game!.m.length) && !this.flip && !this.choosing && !this.stepPeerGame;
+  }
+
+  /**
+   * Out of time on this side's own turn: the flag goes instead of the action (a resignation, a draw offer or answer,
+   * a takeback ask), as it does instead of a move (C6). The game was lost on time before the action. True when so.
+   */
+  private async flagFirst(): Promise<boolean> {
+    if (!this.ownOut()) return false;
+    await this.selfFlag();
+    return true;
   }
 
   /** This side's time ran out (C6): the board locks, and the flag goes. A loss, or a draw against K, K+B or K+N. */
