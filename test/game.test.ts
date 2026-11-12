@@ -714,6 +714,9 @@ describe.each(MODES)("ending a game, $mode", ({ mode, version }) => {
     await sides.white.game.answerDraw(false);
     await settle(sides.white, sides.black);
     expect(sides.black.game.view().drawOffer).toBeUndefined();
+    // The offerer is told, as a declined takeback or invitation tells the asker; the one who declined is not.
+    expect(sides.black.notices).toEqual(["draw-declined"]);
+    expect(sides.white.notices).toEqual([]);
     await sides.white.game.offerDraw();
     await settle(sides.white, sides.black);
     await sides.black.game.answerDraw(true);
