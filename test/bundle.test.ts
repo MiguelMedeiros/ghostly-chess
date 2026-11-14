@@ -82,6 +82,13 @@ describe("the Chess bundle", () => {
     expect(Buffer.byteLength(page), "page").toBeLessThanOrEqual(256 * 1024);
   });
 
+  // The app writes PGN and never reads it: chess.js's PGN parser, which only loadPgn calls, stays out of the page.
+  it("leaves out chess.js's PGN parser", () => {
+    expect(page.includes("end of input"), "the parser's error text").toBe(false);
+    const sources = readdirSync(join(root, "src"), { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".ts"));
+    for (const f of sources) expect(readFileSync(join(root, "src", f), "utf8"), f).not.toMatch(/\bloadPgn\b/);
+  });
+
   it("parses no markup at run time: the pieces are built with createElementNS", () => {
     expect(page).not.toMatch(/\binnerHTML\b|<template|data:image/);
     expect(page.match(/<svg\b/g) ?? []).toHaveLength(0);
