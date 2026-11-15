@@ -124,7 +124,9 @@ export class LinkBroker implements MiniAppApi {
 
   peerEvent(event: MiniAppPeerEvent): void {
     if (!this.isOpen) return;
-    this.inbox.push({ due: this.clock.now, peer: event });
+    // After what is already on its way, as pump() hands it over: the inbox stays sorted by due time, so a frame still
+    // in flight never sits in front of an entry that is due already (settle() would wait for it for ever).
+    this.inbox.push({ due: Math.max(this.clock.now, this.inbox.at(-1)?.due ?? 0), peer: event });
   }
 
   private arrive(value: MiniAppJson, latency: number): void {
@@ -138,9 +140,9 @@ export class LinkBroker implements MiniAppApi {
     return this.inbox[0]?.due;
   }
 
-  /** Whether something is due now. */
+  /** Whether something is due now: the head, the only entry pump() can hand over. */
   due(): boolean {
-    return this.inbox.some((a) => a.due <= this.clock.now);
+    return (this.inbox[0]?.due ?? Infinity) <= this.clock.now;
   }
 
   /** Hands over what is due now, in order. */
