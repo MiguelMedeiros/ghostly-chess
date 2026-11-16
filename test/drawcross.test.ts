@@ -87,17 +87,22 @@ describe("a draw accept that crosses the offerer's next move, with a contact tha
     expect(p.link.a.sent.length + p.link.b.sent.length).toBe(sent);
   });
 
-  it("drops a mating move that crossed the accept too: the game ends agreed, not on the board", async () => {
+  it("never drops a mating move that crossed the accept: the mate stands, and the two games differ", async () => {
     const p = await pair("2.0.0", []);
     const { moves, next } = opening(p, true);
     await play(p, ...moves);
     await cross(p, next);
     await p.link.advance(3000, 10);
-    for (const side of [p.now, p.old]) {
-      expect(side.game.view().end, side.name).toEqual(AGREED);
-      expect(record(side).m, side.name).toEqual(moves);
-      expect(side.notices, side.name).toEqual([]);
-    }
+    const mate = p.now.game.view().me === "w" ? "1-0" : "0-1";
+    expect(p.now.game.view().end).toEqual({ result: mate, why: "checkmate" });
+    expect(record(p.now).m).toHaveLength(moves.length + 1);
+    expect(p.now.notices).toEqual(["out-of-step"]);
+    expect(p.old.game.view().end).toEqual(AGREED);
+    expect(record(p.old).m).toEqual(moves);
+    // Then quiet: no syncs back and forth.
+    const sent = p.link.a.sent.length + p.link.b.sent.length;
+    await p.link.advance(10_000, 100);
+    expect(p.link.a.sent.length + p.link.b.sent.length).toBe(sent);
   });
 
   it("drops the move's time with it in a timed game with a contact on 2.1.0: one clock entry per ply", async () => {

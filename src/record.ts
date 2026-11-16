@@ -52,6 +52,8 @@ export interface SavedGame {
    * the next move, so an accept that crossed that move still ends the game there.
    */
   dl?: number;
+  /** When a frame carrying that move first went out (wall ms): the accept may cross it only for a few seconds after. */
+  dt?: number;
   /** The takeback epoch: how many takebacks were accepted. */
   tb?: number;
   /** A takeback this side asked for, by the ply count it goes back to. */
@@ -131,6 +133,7 @@ export function readGame(value: unknown): SavedGame | null {
   if (isTime(v.tw)) game.tw = v.tw;
   if (isTime(v.ts)) game.ts = v.ts;
   for (const key of ["dn", "dl", "q", "pc", "fl"] as const) if (isInt(v[key], 0, MAX_PLIES)) game[key] = v[key] as number;
+  if (game.dl !== undefined && isTime(v.dt)) game.dt = v.dt;
   if (isInt(v.tb, 0, MAX_MS)) game.tb = v.tb;
   if (game.tc && isInt(v.ko, 1, MAX_MS)) game.ko = v.ko;
   if (game.ko && isInt(v.kj, 0, MAX_PLIES)) game.kj = v.kj;

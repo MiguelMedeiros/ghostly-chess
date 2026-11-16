@@ -37,6 +37,10 @@ describe("the game record", () => {
     const lapsed = { v: 2, g, me, s: [a, b], dv: 1, m: ["e2e4"], dl: 0 };
     expect(readGame(lapsed)).toEqual(lapsed);
     for (const dl of [-1, 1.5, "0", 9999]) expect(readGame({ ...lapsed, dl })!, String(dl)).not.toHaveProperty("dl");
+    // When our move first went out: only with dl.
+    expect(readGame({ ...lapsed, dt: 1_700_000_000_000 })).toEqual({ ...lapsed, dt: 1_700_000_000_000 });
+    for (const dt of [-1, 1.5, "0"]) expect(readGame({ ...lapsed, dt })!, String(dt)).not.toHaveProperty("dt");
+    expect(readGame({ ...lapsed, dl: undefined, dt: 1_700_000_000_000 })!).not.toHaveProperty("dt");
   });
 
   it("drops a corrupt record, as before", () => {
