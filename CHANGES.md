@@ -4,6 +4,14 @@ What each published version of Chess changed, newest first. A version is publish
 `app.ghostlyapp`, is committed here and the [Ghostly store](https://github.com/MiguelMedeiros/ghostly-store) lists it
 ([docs/PUBLISHING.md](docs/PUBLISHING.md)). `sequence` is the number Ghostly orders versions by.
 
+## Unreleased
+
+- Reviewing the game is spoken. Each step of the review (‹ › « », the arrow, Page and Home/End keys) is read
+  ("Reviewing move 3 of 4, White: knight to f3"), and its end too ("Back to the game"). The board's name says that it
+  shows a past position ("Chessboard, reviewing move 3 of 4"). Enter, Space or a click on the reviewed board says
+  why no move is made there and how to get back to the game. A king in check has "in check" in its square's name, not
+  only its red glow. In all 8 languages.
+
 ## 2.3.1 (sequence 5)
 
 - Chess has its own icon (`icon.png` in the bundle, 512 x 512): the Ghostly ghost and a black knight on a green board,
