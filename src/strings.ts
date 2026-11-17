@@ -158,6 +158,10 @@ export const en = {
   abort: "Abort",
   set_premove: "Allow premoves",
   premove: "premove",
+  /** A premove that was illegal when the contact's move came, so it was not played: read aloud. */
+  say_premoveDropped: "Premove cancelled: {from} to {to} is not legal now",
+  /** Between two texts read aloud together ("Your contact: pawn to e5. You: knight to f3"). */
+  say_sep: ". ",
 };
 
 export type Strings = typeof en;

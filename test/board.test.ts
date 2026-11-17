@@ -422,7 +422,8 @@ describe("the page", () => {
     const r2 = mount(fool);
     await play({ white: fool }, "f2f3", "e7e5", "g2g4");
     await play({ white: fool }, "d8h4");
-    expect(r2.querySelector("[aria-live]")!.textContent).toBe("Black wins: checkmate");
+    // The mating move and the end, said in one task, are read together.
+    expect(r2.querySelector("[aria-live]")!.textContent).toBe("Black: queen to h4, checkmate. Black wins: checkmate");
   });
 
   it("lists the moves, numbered in pairs", async () => {
