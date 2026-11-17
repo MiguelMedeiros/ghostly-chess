@@ -4,6 +4,13 @@ What each published version of Chess changed, newest first. A version is publish
 `app.ghostlyapp`, is committed here and the [Ghostly store](https://github.com/MiguelMedeiros/ghostly-store) lists it
 ([docs/PUBLISHING.md](docs/PUBLISHING.md)). `sequence` is the number Ghostly orders versions by.
 
+## Unreleased
+
+- A screen reader hears the contact's move when a premove answers it: what is said in one moment is read together
+  ("Your contact: pawn to e5. You: knight to f3"), where the second text used to replace the first. The same goes for
+  a mating move and the game's end. A premove that is no longer legal when the contact's move comes is said
+  ("Premove cancelled: d1 to d3 is not legal now"), in all 8 languages.
+
 ## 2.3.1 (sequence 5)
 
 - Chess has its own icon (`icon.png` in the bundle, 512 x 512): the Ghostly ghost and a black knight on a green board,

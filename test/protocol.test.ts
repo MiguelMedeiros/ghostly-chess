@@ -300,8 +300,9 @@ describe("strings", () => {
       for (const key of Object.keys(en) as (keyof typeof en)[]) expect(words[key].trim(), `${language}.${key}`).not.toBe("");
       if (language === "en") continue;
       // Only the square names, which are the same everywhere, may match English; and the chess words "Bullet" and
-      // "Blitz" with the time-control patterns made of numbers and units, which most of these languages use as is.
-      const international = new Set(["tc_bullet", "tc_blitz", "tc_words", "tc_wordsInc"]);
+      // "Blitz" with the time-control patterns made of numbers and units, which most of these languages use as is; and
+      // the full stop between two texts read aloud together.
+      const international = new Set(["tc_bullet", "tc_blitz", "tc_words", "tc_wordsInc", "say_sep"]);
       const same = (Object.keys(en) as (keyof typeof en)[]).filter((key) => words[key] === en[key] && !international.has(key));
       expect(same, language).toEqual([]);
     }
