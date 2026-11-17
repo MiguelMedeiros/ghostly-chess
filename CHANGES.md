@@ -4,6 +4,11 @@ What each published version of Chess changed, newest first. A version is publish
 `app.ghostlyapp`, is committed here and the [Ghostly store](https://github.com/MiguelMedeiros/ghostly-store) lists it
 ([docs/PUBLISHING.md](docs/PUBLISHING.md)). `sequence` is the number Ghostly orders versions by.
 
+## Unreleased
+
+- The ½ beside a move while a draw offer stands stays when the page turns between its wide and narrow layouts (a
+  phone turned, a window resized). It went until the next move or answer.
+
 ## 2.3.1 (sequence 5)
 
 - Chess has its own icon (`icon.png` in the bundle, 512 x 512): the Ghostly ghost and a black knight on a green board,

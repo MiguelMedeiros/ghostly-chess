@@ -591,7 +591,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const layout = wide ? "wide" : "narrow";
     if (app.dataset.layout !== layout) {
       app.dataset.layout = layout;
-      moves.render(game.record(), review.ply(), game.spent());
+      moves.render(game.record(), review.ply(), game.spent(), drawChip(game.view()));
     }
   }
   fit();
