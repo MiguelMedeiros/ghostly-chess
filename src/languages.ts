@@ -151,6 +151,13 @@ export const pt: Strings = {
   abort: "Anular",
   set_premove: "Permitir pré-lances",
   premove: "pré-lance",
+  inCheck: "em xeque",
+  reviewAt: "o lance {n} de {total}",
+  reviewStart: "a posição inicial",
+  boardReviewing: "{board}, revendo {at}",
+  say_review: "Revendo {at}",
+  say_live: "De volta ao jogo",
+  say_reviewLocked: "Revendo {at}: nenhum lance aqui. Use “{back}” para jogar",
 };
 
 export const es: Strings = {
@@ -300,6 +307,13 @@ export const es: Strings = {
   abort: "Anular",
   set_premove: "Permitir premovimientos",
   premove: "premovimiento",
+  inCheck: "en jaque",
+  reviewAt: "la jugada {n} de {total}",
+  reviewStart: "la posición inicial",
+  boardReviewing: "{board}, revisando {at}",
+  say_review: "Revisando {at}",
+  say_live: "De vuelta a la partida",
+  say_reviewLocked: "Revisando {at}: aquí no se juega. Usa “{back}” para jugar",
 };
 
 export const fr: Strings = {
@@ -449,6 +463,13 @@ export const fr: Strings = {
   abort: "Annuler la partie",
   set_premove: "Autoriser les pré-coups",
   premove: "pré-coup",
+  inCheck: "en échec",
+  reviewAt: "le coup {n} sur {total}",
+  reviewStart: "la position de départ",
+  boardReviewing: "{board}, en revue : {at}",
+  say_review: "En revue : {at}",
+  say_live: "De retour dans la partie",
+  say_reviewLocked: "En revue : {at}, aucun coup ici. Utilisez « {back} » pour jouer",
 };
 
 export const it: Strings = {
@@ -598,6 +619,13 @@ export const it: Strings = {
   abort: "Annulla partita",
   set_premove: "Consenti le premosse",
   premove: "premossa",
+  inCheck: "sotto scacco",
+  reviewAt: "la mossa {n} di {total}",
+  reviewStart: "la posizione iniziale",
+  boardReviewing: "{board}, in revisione: {at}",
+  say_review: "In revisione: {at}",
+  say_live: "Di nuovo in partita",
+  say_reviewLocked: "In revisione: {at}, nessuna mossa qui. Usa “{back}” per giocare",
 };
 
 export const ja: Strings = {
@@ -747,6 +775,13 @@ export const ja: Strings = {
   abort: "中止",
   set_premove: "先行入力を使う",
   premove: "先行入力",
+  inCheck: "チェック中",
+  reviewAt: "{total}手中{n}手目",
+  reviewStart: "開始局面",
+  boardReviewing: "{board}、振り返り中：{at}",
+  say_review: "振り返り中：{at}",
+  say_live: "対局に戻りました",
+  say_reviewLocked: "振り返り中（{at}）は指せません。「{back}」で対局に戻ります",
 };
 
 export const zh: Strings = {
@@ -896,6 +931,13 @@ export const zh: Strings = {
   abort: "中止",
   set_premove: "允许预走",
   premove: "预走",
+  inCheck: "被将军",
+  reviewAt: "第{n}步（共{total}步）",
+  reviewStart: "初始局面",
+  boardReviewing: "{board}，正在回顾：{at}",
+  say_review: "正在回顾：{at}",
+  say_live: "已回到对局",
+  say_reviewLocked: "正在回顾{at}，这里不能走棋。用“{back}”回到对局",
 };
 
 export const ar: Strings = {
@@ -1045,4 +1087,11 @@ export const ar: Strings = {
   abort: "إلغاء المباراة",
   set_premove: "السماح بالنقلات المسبقة",
   premove: "نقلة مسبقة",
+  inCheck: "في وضع كش",
+  reviewAt: "النقلة {n} من {total}",
+  reviewStart: "وضع البداية",
+  boardReviewing: "{board}، مراجعة: {at}",
+  say_review: "مراجعة: {at}",
+  say_live: "عدت إلى اللعبة",
+  say_reviewLocked: "مراجعة: {at}، لا نقلات هنا. استخدم «{back}» للعب",
 };
