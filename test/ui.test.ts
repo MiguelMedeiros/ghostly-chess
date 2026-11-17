@@ -170,6 +170,34 @@ describe("draw offers on the page", () => {
     await play(sides, "b8c6");
     for (const root of [w, b]) expect(root.querySelector(".san.draw")).toBeNull();
   });
+
+  it("keep the ½ when the layout turns from wide to narrow and back", async () => {
+    const sides = await startChat();
+    await play(sides, "e2e4", "e7e5");
+    const w = mount(sides.white);
+    await sides.white.game.offerDraw();
+    await settle(sides.white, sides.black);
+    await play(sides, "g1f3");
+    const app = w.querySelector<HTMLElement>("[data-layout]")!;
+    const marked = () => [...w.querySelectorAll(".san.draw")].map((s) => s.textContent);
+    const size = { width: window.innerWidth, height: window.innerHeight };
+    const resize = (width: number, height: number) => {
+      Object.assign(window, { innerWidth: width, innerHeight: height });
+      window.dispatchEvent(new Event("resize"));
+    };
+    try {
+      const before = app.dataset.layout;
+      // A phone held upright, then the window it came from: the move list is built again each time.
+      resize(360, 740);
+      expect(app.dataset.layout).not.toBe(before);
+      expect(marked()).toEqual(["Nf3"]);
+      resize(size.width, size.height);
+      expect(app.dataset.layout).toBe(before);
+      expect(marked()).toEqual(["Nf3"]);
+    } finally {
+      resize(size.width, size.height);
+    }
+  });
 });
 
 describe("rematch on the page", () => {
