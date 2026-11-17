@@ -4,6 +4,12 @@ What each published version of Chess changed, newest first. A version is publish
 `app.ghostlyapp`, is committed here and the [Ghostly store](https://github.com/MiguelMedeiros/ghostly-store) lists it
 ([docs/PUBLISHING.md](docs/PUBLISHING.md)). `sequence` is the number Ghostly orders versions by.
 
+## Unreleased
+
+- The PGN of a timed game numbers a black move again after the clock comment before it ("2. Nf3 {[%clk 0:04:58]}
+  2... Nc6"), and its movetext lines stay under 80 characters, as the standard's export format has them. Before, a
+  line could reach 80 and every black move from move 2 followed a comment without its number.
+
 ## 2.3.1 (sequence 5)
 
 - Chess has its own icon (`icon.png` in the bundle, 512 x 512): the Ghostly ghost and a black knight on a green board,

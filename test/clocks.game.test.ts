@@ -603,7 +603,7 @@ describe("an older contact", () => {
 });
 
 describe("the PGN of a timed game", () => {
-  it("has TimeControl, a %clk after each move from ply 2, 'time forfeit', and loads back in chess.js", async () => {
+  it("has TimeControl, a %clk after each move from ply 2 (a black move after one numbered again), 'time forfeit', and loads back in chess.js", async () => {
     const { link, white, black } = await timedGame([300, 2]);
     for (const uci of ["e2e4", "e7e5", "g1f3", "b8c6"]) {
       await link.advance(1500);
@@ -614,7 +614,7 @@ describe("the PGN of a timed game", () => {
     const pgn = pgnOfGame(black.game);
     expect(pgn).toContain('[TimeControl "300+2"]');
     expect(pgn).toContain('[Termination "time forfeit"]');
-    expect(pgn).toMatch(/1\. e4 e5 2\. Nf3 \{\[%clk 0:05:00\]\} Nc6 \{\[%clk 0:05:00\]\} 0-1/);
+    expect(pgn).toMatch(/1\. e4 e5 2\. Nf3 \{\[%clk 0:05:00\]\} 2\.\.\. Nc6 \{\[%clk 0:05:00\]\} 0-1/);
     const chess = new Chess();
     chess.loadPgn(pgn);
     expect(chess.history()).toEqual(["e4", "e5", "Nf3", "Nc6"]);
