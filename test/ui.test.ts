@@ -3,6 +3,7 @@
 // The board on screen: a chessboard is never mirrored, whatever the language's direction.
 import { afterEach, describe, expect, it } from "vitest";
 import { ChessController } from "../src/game.ts";
+import { fr } from "../src/languages.ts";
 import { en } from "../src/strings.ts";
 import { mountChess } from "../src/ui.ts";
 import { MockBroker } from "./mockBroker.ts";
@@ -98,6 +99,15 @@ describe("resign", () => {
     await settle(sides.white, sides.black);
     expect(root.querySelector(".over-head")!.textContent).toBe("No result");
     expect(root.querySelector(".over-reason")!.textContent).toBe("Aborted");
+  });
+
+  it("says how the game ended in French with a no-break space before the colon", async () => {
+    const sides = await startChat();
+    const root = mount(sides.black, { ...en, ...fr });
+    await play(sides, "e2e4");
+    root.querySelector<HTMLButtonElement>(".actions .abort-btn")!.click();
+    await settle(sides.white, sides.black);
+    expect(root.querySelector(".status")!.textContent).toBe("Pas de résultat\u00a0: annulée");
   });
 
   it("stays Resign before ply 2 with Chess 1.0.2", async () => {
