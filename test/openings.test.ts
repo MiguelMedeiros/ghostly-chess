@@ -10,6 +10,8 @@ import { decodeBase64url, epdOf, fnv1a, MAX_PLY, openingOf, openingOfEpd } from 
 
 const root = join(import.meta.dirname, "..");
 const generated = readFileSync(join(root, OUT), "utf8");
+// Replaying every line of the data set takes seconds: the tests share one read.
+const lines = readLines();
 
 /** The FEN after each ply of these SAN moves. */
 function fensOf(...sans: string[]): string[] {
@@ -22,7 +24,7 @@ function fensOf(...sans: string[]): string[] {
 
 describe("the generated table", () => {
   it("is what scripts/openings.mjs makes from the vendored TSVs (npm run gen:openings)", () => {
-    expect(generated).toBe(generate());
+    expect(generated).toBe(generate(lines));
   }, 30_000);
 
   it("is 48 KiB or less, and its table is base64url without padding", () => {
@@ -35,7 +37,7 @@ describe("the generated table", () => {
   });
 
   it("has no two entries with one 32-bit key", () => {
-    const { records } = build();
+    const { records } = build(lines);
     expect(records).toHaveLength(2175);
     expect(new Set(records.map((r) => r.key)).size).toBe(records.length);
     const bytes = decodeBase64url(TABLE);
@@ -74,7 +76,7 @@ describe("looking a game up", () => {
 
   it("gives every line of the data set its own ECO code and short name, looked up along its own moves", () => {
     const wrong: string[] = [];
-    for (const line of readLines()) {
+    for (const line of lines) {
       const found = openingOf(line.epds);
       const name = shortName(line.name).filter(Boolean).join(": ");
       if (found?.eco !== line.eco || found.name !== name) wrong.push(`${line.eco} ${line.name}: got ${found?.eco} ${found?.name}`);

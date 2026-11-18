@@ -22,4 +22,4 @@ export function epd(fen: string): string;
 export function shortName(name: string): [string, string];
 export function readLines(): OpeningLine[];
 export function build(lines?: OpeningLine[]): { families: string[]; variations: string[]; records: OpeningRecord[]; table: string; maxPly: number };
-export function generate(): string;
+export function generate(lines?: OpeningLine[]): string;
