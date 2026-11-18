@@ -328,6 +328,25 @@ describe("promotion", () => {
     expect(document.activeElement).toBe(sq(root, "e7"));
   });
 
+  it("a finger's tap on the shade closes the picker and picks up nothing under it", async () => {
+    const { white, black } = await startChat();
+    await play({ white, black }, ...TO_PROMOTION);
+    const root = mount(white);
+    sq(root, "e7").click();
+    sq(root, "e8").click();
+    // The shade goes on the press; a touch's click then goes to what was under the finger: here white's knight on g1.
+    pointer(root.querySelector(".promo-shade")!, "pointerdown");
+    pointerClick(sq(root, "g1"));
+    await settle(white, black);
+    expect(root.querySelector(".promo")).toBeNull();
+    expect(root.querySelectorAll(".sq.selected")).toHaveLength(0);
+    // The next tap on the knight picks it up.
+    pointer(sq(root, "g1"), "pointerdown");
+    pointer(sq(root, "g1"), "pointerup");
+    pointerClick(sq(root, "g1"));
+    expect(sq(root, "g1").classList.contains("selected")).toBe(true);
+  });
+
   it("with auto-queen on, sends e7e8q and shows no picker", async () => {
     const { white, black } = await startChat();
     await play({ white, black }, ...TO_PROMOTION);
