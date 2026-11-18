@@ -133,7 +133,7 @@ test("a timed game drawn by agreement, its PGN copied, then a rematch won by che
   expect(mated).toContain(`[White "${blackName}"]`);
   expect(mated).toContain(`[Black "${whiteName}"]`);
   expect(mated).toContain('[Result "0-1"]');
-  expect(mated).toMatch(/\n1\. f3 e5 2\. g4 \{\[%clk 0:0[23]:\d\d\]\} Qh4# \{\[%clk 0:0[23]:\d\d\]\} 0-1\n$/);
+  expect(mated).toMatch(/\n1\. f3 e5 2\. g4 \{\[%clk 0:0[23]:\d\d\]\} 2\.\.\. Qh4# \{\[%clk 0:0[23]:\d\d\]\} 0-1\n$/);
 
   // Nothing broke the runner's rules on the way, and no script failed.
   for (const side of [ana, bob]) expect(await side.frame.evaluate(() => (window as unknown as { __violations: string[] }).__violations)).toEqual([]);
