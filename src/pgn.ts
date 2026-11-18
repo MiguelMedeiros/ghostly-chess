@@ -1,11 +1,11 @@
 /**
  * The game as PGN (the Portable Game Notation standard, section 8): the Seven Tag Roster, then ECO, Opening,
- * TimeControl and Termination, a blank line, and the SAN movetext with move numbers, wrapped at 80 columns and ending
- * with the result.
+ * TimeControl and Termination, a blank line, and the SAN movetext with move numbers, in lines under 80 characters
+ * and ending with the result (the export format, section 8.2.2).
  *
  * A timed game has TimeControl "300+2" and a [%clk h:mm:ss] comment after each move from ply 2 (the mover's time
- * after it); a game lost on time ends "time forfeit", one whose clocks disagreed "unterminated" and an aborted one
- * "abandoned" (both with "*").
+ * after it), so a black move after one carries its number again, "2... Nc6" (section 8.2.2.2); a game lost on time
+ * ends "time forfeit", one whose clocks disagreed "unterminated" and an aborted one "abandoned" (both with "*").
  *
  * White and Black are the players' names in a chat (this side's own, the contact's from its hello, both cleaned and
  * escaped here), or "?", the standard's unknown, without one. A game from Chess 1.0.2 has no start date, so its Date
@@ -34,7 +34,8 @@ export interface PgnGame {
   clocks?: readonly number[];
 }
 
-const WIDTH = 80;
+/** Export format lines have less than 80 characters (section 8.2.2.3). */
+const WIDTH = 79;
 
 /** A tag value with its quotes and backslashes escaped. */
 export function escapeTag(value: string): string {
@@ -70,11 +71,16 @@ export function toPgn(game: PgnGame): string {
     ["Termination", game.termination ?? (game.result === "*" ? "unterminated" : "normal")],
   ];
   const tokens: string[] = [];
+  // Whether the token before this ply is a comment: a black move after one needs its number again.
+  let commented = false;
   game.sans.forEach((san, i) => {
+    const comment = i >= 2 && game.clocks?.[i] !== undefined;
     if (i % 2 === 0) tokens.push(`${i / 2 + 1}.`);
+    else if (commented) tokens.push(`${(i + 1) / 2}...`);
     tokens.push(san);
     // One token, so a line never breaks inside the comment.
-    if (i >= 2 && game.clocks?.[i] !== undefined) tokens.push(`{[%clk ${clkText(game.clocks[i])}]}`);
+    if (comment) tokens.push(`{[%clk ${clkText(game.clocks![i])}]}`);
+    commented = comment;
   });
   tokens.push(game.result);
   return `${tags.map(([name, value]) => `[${name} "${escapeTag(value)}"]`).join("\n")}\n\n${wrap(tokens)}\n`;
