@@ -102,8 +102,9 @@ export class Board {
   /**
    * The last press a pointer made: the click the browser sends after it, on the same square, is that press again and
    * is skipped. A click with no pointer press before it (assistive tech, switch access, element.click()) is not.
+   * `square: null` is a press on the promotion picker's shade: its click is skipped on whatever square it lands.
    */
-  private suppressClick: { square: Square; until: number } | null = null;
+  private suppressClick: { square: Square | null; until: number } | null = null;
   private promotion: { from: Square; to: Square; element: HTMLElement } | null = null;
   private longPress: ReturnType<typeof setTimeout> | undefined;
   /** The ply count after a dropped move: that move does not slide. */
@@ -359,7 +360,7 @@ export class Board {
       const skip = this.suppressClick;
       this.suppressClick = null;
       // detail is 0 for a click no pointer made (element.click(), a screen reader's activation).
-      if (skip && e.detail > 0 && e.timeStamp < skip.until && square === skip.square) return;
+      if (skip && e.detail > 0 && e.timeStamp < skip.until && (skip.square === null || square === skip.square)) return;
       if (square) this.activate(square);
     });
     // A press released off the board before it became a drag (nothing captured it yet), or a window that lost focus
@@ -612,6 +613,9 @@ export class Board {
     const shade = el("div", "promo-shade");
     shade.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      // A touch's click comes where the finger is released, once the shade is gone: on a square of the board. This
+      // press closed the picker; it does not also pick up the piece there.
+      this.suppressClick = { square: null, until: e.timeStamp + CLICK_AFTER_PRESS_MS };
       this.closePromotion(true);
     });
     const column = el("div", `promo-col ${down ? "down" : "up"}`);
