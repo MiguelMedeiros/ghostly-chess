@@ -4,8 +4,8 @@
   --bg: #f7f7f5;
   --fg: #1d1d1f;
   --muted: #5f6368;
-  --accent: #2f6fde;
-  --danger: #c0362c;
+  --accent: #2560c4;
+  --danger: #b53229;
   --btn: #e6e6e3;
   --surface: #ffffff;
   --line: #d6d6d2;
@@ -94,6 +94,7 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 .strip .clock.running { background: var(--fg); color: var(--bg); }
 .strip .clock.low { color: var(--danger); }
 .strip .clock.low.running { background: var(--danger); color: #fff; }
+:root[data-theme="dark"] .strip .clock.low.running { color: #10131a; }
 .strip.silent .name { color: var(--danger); }
 /*
  * A phone: a little tighter, so the contact's name and a few captures fit beside the clock at 320 px, also in wider
