@@ -254,8 +254,10 @@ body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
 .rank { display: grid; grid-template-columns: repeat(8, 1fr); }
+/* width: 100%: WebKit (Playwright 1.64's) laid a square showing a move dot out as wide as the board, its ::after's 32%
+   taken of that, and pushed the rest of the rank off the board. Not overflow: hidden, which would clip a piece's glide. */
 .sq {
-  all: unset; position: relative; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  all: unset; position: relative; display: flex; align-items: center; justify-content: center; width: 100%; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 .sq.light { background-color: var(--light); }
