@@ -621,3 +621,68 @@ describe("the PGN of a timed game", () => {
     expect(chess.getComments().map((c) => c.comment)).toEqual(["[%clk 0:05:00]", "[%clk 0:05:00]"]);
   });
 });
+
+describe("an action after this side's time ran out", () => {
+  /** Time goes by with no tick on either side: the page's ticker has not run since this side's time ran out. */
+  const elapse = (link: Link, ms: number) => {
+    link.clock.now += ms;
+    for (const s of link.sides) s.mono += ms * s.rate;
+  };
+
+  /** White, to move at ply 2 of a 1|0 game, lets its time run out unticked; `act` then runs on white. */
+  async function outOfTime(act: (white: Side, black: Side) => Promise<unknown>, setup?: (white: Side, black: Side, link: Link) => Promise<void>) {
+    const { link, white, black } = await timedGame([60, 0]);
+    await play(link, white, "e2e4");
+    await play(link, black, "e7e5");
+    await setup?.(white, black, link);
+    elapse(link, 61_000);
+    expect(end(white)).toBeUndefined();
+    await act(white, black);
+    await link.advance(1000);
+    for (const side of [white, black]) expect(end(side), side.name).toEqual({ result: "0-1", why: "time" });
+    expect(record(white).x).toEqual({ why: "time", by: "w" });
+    expect(record(black).x).toEqual({ why: "time", by: "w" });
+    expect(flags(white)).toEqual([expect.objectContaining({ k: "flag", n: 2, by: "w" })]);
+    return { link, white, black };
+  }
+
+  it("resigning flags instead: a loss on time, and no resign goes", async () => {
+    const { white } = await outOfTime((white) => white.game.resign());
+    expect(white.broker.kinds("resign")).toEqual([]);
+  });
+
+  it("offering a draw flags instead: no offer goes", async () => {
+    const { white } = await outOfTime((white) => white.game.offerDraw());
+    expect(white.broker.kinds("draw")).toEqual([]);
+  });
+
+  for (const accept of [true, false]) {
+    it(`${accept ? "accepting" : "declining"} the contact's draw offer flags instead: no answer goes`, async () => {
+      const { white } = await outOfTime(
+        (white) => white.game.answerDraw(accept),
+        async (white, black, link) => {
+          await black.game.offerDraw();
+          await link.advance(100, 10);
+          expect(white.game.view().drawOffer).toBe("peer");
+        },
+      );
+      expect(white.broker.kinds("draw")).toEqual([]);
+    });
+  }
+
+  it("accepting the contact's offer with Offer draw flags instead", async () => {
+    const { white } = await outOfTime(
+      (white) => white.game.offerDraw(),
+      async (white, black, link) => {
+        await black.game.offerDraw();
+        await link.advance(100, 10);
+      },
+    );
+    expect(white.broker.kinds("draw")).toEqual([]);
+  });
+
+  it("asking for a takeback flags instead: no ask goes", async () => {
+    const { white } = await outOfTime((white) => white.game.takeback());
+    expect(white.broker.kinds("takeback")).toEqual([]);
+  });
+});
