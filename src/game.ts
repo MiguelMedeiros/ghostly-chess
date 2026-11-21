@@ -149,7 +149,8 @@ export type Notice =
   | "declined"
   | "clock-off"
   | "taken-back"
-  | "takeback-declined";
+  | "takeback-declined"
+  | "draw-declined";
 
 /** An invitation's terms, as the UI shows them. */
 export interface Terms {
@@ -1584,6 +1585,7 @@ export class ChessController {
     }
     await this.saveGame();
     this.changed();
+    if (option === "decline") this.notice("draw-declined");
   }
 
   /**

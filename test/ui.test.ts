@@ -170,6 +170,20 @@ describe("draw offers on the page", () => {
     await play(sides, "b8c6");
     for (const root of [w, b]) expect(root.querySelector(".san.draw")).toBeNull();
   });
+
+  it("tell the offerer, politely, when the contact declines", async () => {
+    const sides = await startChat();
+    await play(sides, "e2e4", "e7e5");
+    const w = mount(sides.white);
+    const b = mount(sides.black);
+    await sides.black.game.offerDraw();
+    await settle(sides.white, sides.black);
+    w.querySelector<HTMLButtonElement>(".offer-card button:not(.primary)")!.click();
+    await settle(sides.white, sides.black);
+    expect(b.querySelector(".notice.info")!.textContent).toBe("Your contact declined the draw.");
+    expect(b.querySelector(".actions .draw-btn")!.textContent).toBe(en.offerDraw);
+    expect(w.querySelector(".notice.info")?.textContent ?? "").toBe("");
+  });
 });
 
 describe("rematch on the page", () => {
