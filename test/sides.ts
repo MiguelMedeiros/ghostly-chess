@@ -31,7 +31,7 @@ export async function open(broker: MockBroker): Promise<Side> {
 }
 
 /** Until no frame is on its way and both apps handled what they got. */
-export async function settle(...sides: Side[]): Promise<void> {
+export async function settle(...sides: Pick<Side, "broker" | "game">[]): Promise<void> {
   for (let idle = 0; idle < 3; ) {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.all(sides.map((s) => s.game.settled()));
