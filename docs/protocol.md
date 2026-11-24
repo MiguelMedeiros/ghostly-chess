@@ -148,11 +148,12 @@ comes in a version 1 frame.
   history that is this side's plus at most one legal ply of the sender's. Anything longer or different is "out of
   step", and a new game gives up both: the side out of step keeps the contact's game id until a new game begins, so
   its next `seek` names both in `a`.
-- A resignation and a move made while the contact was away: when a `sync` with the sender's resignation is one ply
-  short of this side's history and that ply is this side's own (the sender never saw it), the ply is dropped, since
-  the game ended before it, and this side sends the matching `sync`. The resigner, holding its own end, keeps its
-  history when a `sync` is its own plus one ply with no end (or the same end), and answers a `sync` with no end with
-  its own.
+- A resignation and a move made while the contact was away, or one that crossed its `resign`: when a `sync` with the
+  sender's resignation is one ply short of this side's history and that ply is this side's own (the sender never saw
+  it), the ply is dropped, since the game ended before it, and this side sends the matching `sync`. A `resign` frame
+  names no ply, so this holds also when its `resign` came first: the `sync` the resigner sends on the crossing move
+  says where it resigned. The resigner, holding its own end, keeps its history when a `sync` is its own plus one ply
+  with no end (or the same end), and answers a `sync` with no end with its own.
 - Every `draw`, `takeback`, `ack`, `flag` and `dispute` names the ply count `n` it is about. One whose `g` or `n`
   differs from this side's game is ignored.
 - A `sync`'s end `x` is taken only when this side could have reached it:
