@@ -151,6 +151,8 @@ export const pt: Strings = {
   abort: "Anular",
   set_premove: "Permitir pré-lances",
   premove: "pré-lance",
+  say_premoveDropped: "Pré-lance cancelado: {from} para {to} não é válido agora",
+  say_sep: ". ",
 };
 
 export const es: Strings = {
@@ -300,6 +302,8 @@ export const es: Strings = {
   abort: "Anular",
   set_premove: "Permitir premovimientos",
   premove: "premovimiento",
+  say_premoveDropped: "Premovimiento cancelado: {from} a {to} no es válido ahora",
+  say_sep: ". ",
 };
 
 export const fr: Strings = {
@@ -449,6 +453,8 @@ export const fr: Strings = {
   abort: "Annuler la partie",
   set_premove: "Autoriser les pré-coups",
   premove: "pré-coup",
+  say_premoveDropped: "Pré-coup annulé : {from} en {to} n’est plus possible",
+  say_sep: ". ",
 };
 
 export const it: Strings = {
@@ -598,6 +604,8 @@ export const it: Strings = {
   abort: "Annulla partita",
   set_premove: "Consenti le premosse",
   premove: "premossa",
+  say_premoveDropped: "Premossa annullata: {from} in {to} non è più valida",
+  say_sep: ". ",
 };
 
 export const ja: Strings = {
@@ -747,6 +755,8 @@ export const ja: Strings = {
   abort: "中止",
   set_premove: "先行入力を使う",
   premove: "先行入力",
+  say_premoveDropped: "先行入力を取り消しました：{from}から{to}へは今は指せません",
+  say_sep: "。",
 };
 
 export const zh: Strings = {
@@ -896,6 +906,8 @@ export const zh: Strings = {
   abort: "中止",
   set_premove: "允许预走",
   premove: "预走",
+  say_premoveDropped: "预走已取消：{from}到{to}现在不合法",
+  say_sep: "。",
 };
 
 export const ar: Strings = {
@@ -1045,4 +1057,6 @@ export const ar: Strings = {
   abort: "إلغاء المباراة",
   set_premove: "السماح بالنقلات المسبقة",
   premove: "نقلة مسبقة",
+  say_premoveDropped: "أُلغيت النقلة المسبقة: {from} إلى {to} غير مسموحة الآن",
+  say_sep: ". ",
 };

@@ -5,7 +5,8 @@
  *   push from its start, and both diagonals; a king's castling squares from its start), whatever stands there now. A
  *   recapture onto a square one's own piece holds now is a premove too.
  * - It is played through the controller as an ordinary move the moment it is this side's turn after one more ply,
- *   so it is checked, timed and sent like any move. Illegal then, it is dropped and nothing is sent.
+ *   so it is checked, timed and sent like any move. Illegal then, it is dropped, nothing is sent, and `dropped` is
+ *   told, so the page can say so.
  * - A pawn's premove to the last rank promotes to a queen: the picker cannot open on the contact's turn.
  * - Anything else that changes the game (a takeback, an end, a new game) drops it. The page drops it on Escape, a
  *   right-click or a long press, a click on a square that is not a target, while reviewing, and when the "premove"
@@ -69,10 +70,11 @@ export class Premove {
   private readonly listeners = new Set<() => void>();
   private readonly off: () => void;
 
-  /** `enabled` reads the "premove" setting. */
+  /** `enabled` reads the "premove" setting; `dropped` hears of a premove that was illegal on arrival. */
   constructor(
     private readonly game: ChessController,
     private readonly enabled: () => boolean,
+    private readonly dropped: (move: Queued) => void = () => {},
   ) {
     this.off = game.subscribe(() => this.changed());
   }
@@ -121,6 +123,8 @@ export class Premove {
     this.queued = null;
     this.emit();
     if (!view.canMove || view.plies !== queued.plies + 1 || !this.enabled()) return;
+    const { from, to } = queued;
+    if (!this.game.targets(from).some((m) => m.to === to)) return this.dropped({ from, to });
     const piece = at(this.game.board(), queued.from);
     const promotion = piece?.type === "p" && /[18]$/.test(queued.to) ? "q" : undefined;
     void this.game.move(queued.from, queued.to, promotion);

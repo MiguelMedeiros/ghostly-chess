@@ -194,7 +194,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   }
   // Made before the page listens to the game: it checks its cursor against each change first.
   const review = new Review(game);
-  const premove = new Premove(game, () => prefs.get().premove);
+  // A premove illegal on arrival is said: the page has nothing else to show for it but its squares' marks going.
+  const premove = new Premove(game, () => prefs.get().premove, (move) => announcer.say(fill(t.say_premoveDropped, { ...move })));
   const board = new Board(review, t, prefs, premove);
   play.append(top, board.element, bottom);
 
@@ -245,7 +246,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   standing.hidden = true;
   notices.append(notice, info, standing);
   panel.append(status, side, opening, moves.element, navRow, bar, notices);
-  const announcer = createAnnouncer();
+  const announcer = createAnnouncer(t.say_sep);
   app.append(play, panel, announcer.element);
   root.replaceChildren(app);
 
