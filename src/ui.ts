@@ -439,7 +439,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const { result, why } = end;
     const head =
       result === "*" ? t.noResult : result === "1/2-1/2" ? t.drawn : view.me ? ((result === "1-0") === (view.me === "w") ? t.won : t.lost) : result === "1-0" ? t.whiteWins : t.blackWins;
-    return `${head}: ${t[`why_${why}`]}`;
+    return fill(t.ended, { head, why: t[`why_${why}`] });
   }
 
   function statusText(view: View): string {
