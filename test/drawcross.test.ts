@@ -166,6 +166,8 @@ describe("a draw accept that crosses the offerer's next move, with a contact tha
     p.link.hold(true);
     expect(await p.now.game.move(...next)).toBe(true);
     await p.old.game.answerDraw(true);
+    // Longer than the 5 s window: it must start with the sync that carries the move, not with the move.
+    await p.link.advance(6000, 100);
     expect(p.link.a.sent.length).toBe(sent);
     p.link.hold(false);
     // The reconnect: our sync carries the move, and the contact's (agreed at the offer's ply) crosses it.
