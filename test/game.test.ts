@@ -1,7 +1,7 @@
 // covers: apps.chess
 import { describe, expect, it } from "vitest";
 import type { Square } from "chess.js";
-import { ChessController, type Notice, type SavedFlip, type SavedGame } from "../src/game.ts";
+import { ChessController, type ControllerOptions, type Notice, type SavedFlip, type SavedGame } from "../src/game.ts";
 import { pgnOfGame } from "../src/pgn.ts";
 import { encodeMessage, encodeV1, MAX_MESSAGE_BYTES, speaksV2, type Envelope, type Message } from "../src/protocol.ts";
 import { commitment, deal, deal2, newSalt } from "../src/toss.ts";
@@ -14,9 +14,9 @@ interface Side {
   notices: Notice[];
 }
 
-async function open(broker: MockBroker): Promise<Side> {
+async function open(broker: MockBroker, options: ControllerOptions = {}): Promise<Side> {
   broker.launch();
-  const game = new ChessController(broker);
+  const game = new ChessController(broker, options);
   const notices: Notice[] = [];
   game.onNotice((n) => notices.push(n));
   await game.start();
@@ -117,8 +117,21 @@ describe("the colour toss in version 1 (as Chess 1.0.2)", () => {
   });
 
   it("decides colours from both salts, so either colour comes up", async () => {
+    // Fixed salts, one pair for each colour of Ana's, so both come up on every run (random ones all landed on one
+    // colour about once in 2048 runs).
+    const salt = (n: number) => () => new Uint8Array(32).fill(n);
+    const pairs = new Map<string, number>();
+    for (let n = 2; pairs.size < 2; n++) pairs.set(deal(newSalt(salt(1)), newSalt(salt(n))).me, n);
     const colours = new Set<string>();
-    for (let i = 0; i < 12 && colours.size < 2; i++) colours.add((await start("1.0.2")).ana.game.view().me!);
+    for (const [colour, n] of pairs) {
+      const [a, b] = chatPair("1.0.2");
+      const ana = await open(a, { random: salt(1) });
+      const bob = await open(b, { random: salt(n) });
+      await settle(ana, bob);
+      expect(ana.game.view().me).toBe(colour);
+      expect(bob.game.view().me).toBe(colour === "w" ? "b" : "w");
+      colours.add(ana.game.view().me!);
+    }
     expect(colours).toEqual(new Set(["w", "b"]));
   });
 
@@ -714,6 +727,9 @@ describe.each(MODES)("ending a game, $mode", ({ mode, version }) => {
     await sides.white.game.answerDraw(false);
     await settle(sides.white, sides.black);
     expect(sides.black.game.view().drawOffer).toBeUndefined();
+    // The offerer is told, as a declined takeback or invitation tells the asker; the one who declined is not.
+    expect(sides.black.notices).toEqual(["draw-declined"]);
+    expect(sides.white.notices).toEqual([]);
     await sides.white.game.offerDraw();
     await settle(sides.white, sides.black);
     await sides.black.game.answerDraw(true);

@@ -148,11 +148,12 @@ comes in a version 1 frame.
   history that is this side's plus at most one legal ply of the sender's. Anything longer or different is "out of
   step", and a new game gives up both: the side out of step keeps the contact's game id until a new game begins, so
   its next `seek` names both in `a`.
-- A resignation and a move made while the contact was away: when a `sync` with the sender's resignation is one ply
-  short of this side's history and that ply is this side's own (the sender never saw it), the ply is dropped, since
-  the game ended before it, and this side sends the matching `sync`. The resigner, holding its own end, keeps its
-  history when a `sync` is its own plus one ply with no end (or the same end), and answers a `sync` with no end with
-  its own.
+- A resignation and a move made while the contact was away, or one that crossed its `resign`: when a `sync` with the
+  sender's resignation is one ply short of this side's history and that ply is this side's own (the sender never saw
+  it), the ply is dropped, since the game ended before it, and this side sends the matching `sync`. A `resign` frame
+  names no ply, so this holds also when its `resign` came first: the `sync` the resigner sends on the crossing move
+  says where it resigned. The resigner, holding its own end, keeps its history when a `sync` is its own plus one ply
+  with no end (or the same end), and answers a `sync` with no end with its own.
 - Every `draw`, `takeback`, `ack`, `flag` and `dispute` names the ply count `n` it is about. One whose `g` or `n`
   differs from this side's game is ignored.
 - A `sync`'s end `x` is taken only when this side could have reached it:
@@ -175,6 +176,22 @@ other side moves: moving instead of answering declines it. A `sync`'s `d` = [off
 or one ply back when that ply is the offerer's own. A side offers once per own move. With an older contact, and in
 version 1, any move clears an offer, as in Chess 1.0.2, so the two sides never disagree about one.
 
+With such a contact (one that names no `takeback`: Chess 2.0.x, 2.1.x, and 1.0.2 in version 1), an answer can still
+cross the offerer's next move: the contact can answer only while it does not hold that move, since the move clears
+the offer there as it arrives, and its accept ends the game at the offer's ply on its side. So the offerer keeps the
+ply count of its offer that its own move cleared (`dl` in the record) until the next move, and an `accept` naming
+that ply count (in version 1, an `accept`, which names none) that arrives while it holds exactly one ply more, its
+own, ends the game there: that ply is dropped, and the game ends agreed with the history the accepter holds. A `sync`
+with `agreed` at that ply count is taken the same way, so a lost accept, a reload or a reconnect ends it too. Nothing
+proves when the move reached the contact, so such an accept counts only while it may have crossed the move: within
+5 s of the first frame carrying the move going out to the contact open (`dt` in the record, kept across a reload),
+and until a frame of the contact's names the move as held (an `ack`, a `sync` or an offer at that ply count, or its
+next move). A move that ended the game on the board (a mate, say) is never dropped. Outside that, the move stands;
+a `sync` with `agreed` at the offer's ply count shows "your games differ" (out of step) once, which is what the
+two sides hold when the move was a mate. A `decline` that crossed the move changes nothing. An answer that comes
+after a move of the contact's is stale and refused, as before. Known limit: when the offerer is the older Chess and this side accepts, the offerer
+keeps its move and refuses the accept, so the two still end apart; only the offerer can drop its own move.
+
 An accept may cross the offerer's next move. Its `n` is the offer's either way, so the offerer cannot tell from it
 whether the accepter saw that move: when it holds one ply more than `n`, its own, it does not end the game from the
 frame but sends its `sync`, and the accepter's `sync` (with `x` = agreed) decides. A `sync` with `agreed` is taken at
@@ -193,9 +210,11 @@ so two sides that disagree never send syncs back and forth for ever.
 2. The other side shows it only when `h` is its own ply count and `n` is the ply its contact's last move came from;
    anything else is stale. Without `h`, a one-ply ask that crossed the contact's move would read as a two-ply ask
    with the same `n`. A move by the other side lets the ask lapse, and an ask that lapsed or was declined is not shown
-   again. While its ask waits, the asker does not move, resign, abort, answer a draw offer or flag itself (its clock
-   runs, and the contact claims as usual, C7): each of those could cross the accept. When both ask at once, the ask
-   with the smaller `n` stands and the other lapses, on both sides alike.
+   again. A declined ask that comes again (the asker sends it on the contact's open, so the decline was lost in a
+   session gap) is declined again, at most once a second. While its ask waits, the asker does not move, resign,
+   abort, answer a draw offer or flag itself (its clock runs, and the contact claims as usual, C7): each of those could
+   cross the accept. When both ask at once, the ask with the smaller `n` stands and the other lapses, on both sides
+   alike.
 3. `decline` changes nothing. `accept`: both sides cut the moves to `n` plies and keep `k` for them, so both clocks
    are as they were after ply n-1. The epoch `tb` goes up by one. The asker is to move: its turn starts at the accept
    (`tw`), and so does the other side's bound on it (`ts`, C4). A clamp on a ply taken back goes with it (`ko`, C5).
@@ -331,7 +350,7 @@ Per chat, in the broker's storage:
 
 | Key | Value |
 |---|---|
-| `game` | `{v: 2, g, me, s, dv, sd?, tc?, r?, m, k?, tw?, ts?, x?, d?, dn?, tb?, q?, pc?, fl?, ko?, kj?}`: `dv` is the deal (1 or 2). A 1.0.2 record (`v: 1`) reads as `dv: 1`, untimed, same game id. The clocks' part (`k`, `tw`, `ts`, `pc`, `fl`, `ko`, and `kj`, the ply of the latest clamp) is written at turn boundaries, never on a clock tick. `tb` is the takeback epoch, `q` this side's takeback ask |
+| `game` | `{v: 2, g, me, s, dv, sd?, tc?, r?, m, k?, tw?, ts?, x?, d?, dn?, dl?, dt?, tb?, q?, pc?, fl?, ko?, kj?}`: `dv` is the deal (1 or 2). `dl` is the ply count of this side's draw offer that its own move cleared, with a contact that names no `takeback`, kept until the next move, and `dt` the wall time that move first went out (Draw offers). A 1.0.2 record (`v: 1`) reads as `dv: 1`, untimed, same game id. The clocks' part (`k`, `tw`, `ts`, `pc`, `fl`, `ko`, and `kj`, the ply of the latest clamp) is written at turn boundaries, never on a clock tick. `tb` is the takeback epoch, `q` this side's takeback ask |
 | `flip` | `{v: 2, salt, dv, peer?, a, tc?, r?}`: the toss going, the deal it is for and the invitation's terms, so a reload sends the same seek. A 1.0.2 record (`v: 1`) reads as `dv: 1` |
 | `prev` | `{g, me, tc?}`: the last finished game, for a rematch's colours |
 | `prefs` | The settings. From 2.2.0 the record carries `pm: 1`; `premove` is read only from such a record, since 2.0 and 2.1 wrote `premove: false` without a control for it |
