@@ -13,6 +13,10 @@ What each published version of Chess changed, newest first. A version is publish
   ended the game, such as a mate, is never taken back: then the two games differ. A draw they decline that
   way no longer shows a notice. When they offer and you accept as they move, the two games still end apart: only their
   side can take that move back.
+- A new game invited right after a resignation, while the connection comes back, now starts in step on both sides.
+  Before, the inviter could read "Your games differ. Start a new one?" on the new game while the contact was playing
+  it: a late sync of the game just given up was taken as the contact's current game. Such a sync is now answered with
+  the new game, also after a reload.
 
 ## 2.3.1 (sequence 5)
 
