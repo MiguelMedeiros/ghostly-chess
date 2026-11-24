@@ -76,9 +76,10 @@ const NOTICE_KEY: Record<Notice, StringKey> = {
   "clock-off": "notice_clockOff",
   "taken-back": "takenBack",
   "takeback-declined": "notice_takebackDeclined",
+  "draw-declined": "notice_drawDeclined",
 };
 /** Notices that report what happened rather than a fault: they are announced politely, not as alerts. */
-const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game", "declined", "taken-back", "takeback-declined"]);
+const INFO_NOTICES = new Set<Notice>(["toss-restarted", "peer-new-game", "declined", "taken-back", "takeback-declined", "draw-declined"]);
 
 /** The panel's width beside the board, and the smallest board side (24 px squares, WCAG 2.2's target size). */
 const PANEL_WIDTH = 240;
@@ -465,7 +466,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const { result, why } = end;
     const head =
       result === "*" ? t.noResult : result === "1/2-1/2" ? t.drawn : view.me ? ((result === "1-0") === (view.me === "w") ? t.won : t.lost) : result === "1-0" ? t.whiteWins : t.blackWins;
-    return `${head}: ${t[`why_${why}`]}`;
+    return fill(t.ended, { head, why: t[`why_${why}`] });
   }
 
   function statusText(view: View): string {

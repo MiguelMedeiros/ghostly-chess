@@ -96,6 +96,26 @@ test.describe("taps", () => {
     }
     for (const side of sides) await side.context.close();
   });
+
+  test("a finger's tap to the last rank opens the picker, and a tap on the knight picks it", async ({ browser, browserName }) => {
+    const side = await openSide(browser, { name: "solo", inChat: false, contextOptions: { viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: browserName === "chromium" } });
+    // 1.a4 b5 2.axb5 a6 3.bxa6 Bb7 4.axb7 Nc6: white's pawn on b7 takes on a8.
+    for (const [from, to] of [["a2", "a4"], ["b7", "b5"], ["a4", "b5"], ["a7", "a6"], ["b5", "a6"], ["c8", "b7"], ["a6", "b7"], ["b8", "c6"]]) {
+      await side.frame.locator(`[data-square="${from}"]`).click();
+      await side.frame.locator(`[data-square="${to}"]`).click();
+    }
+    const tap = async (box: { x: number; y: number; width: number; height: number } | null) => side.page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await tap(await side.frame.locator('[data-square="b7"]').boundingBox());
+    await tap(await side.frame.locator('[data-square="a8"]').boundingBox());
+    // The queen opens under the finger: the tap's own click does not pick it.
+    await expect(side.frame.locator(".promo")).toBeVisible();
+    await side.page.waitForTimeout(300);
+    await expect(side.frame.locator(".promo")).toBeVisible();
+    await tap(await side.frame.locator('[data-promote="n"]').boundingBox());
+    await expect(side.frame.locator(".promo")).toHaveCount(0);
+    await expect(side.frame.locator('[data-square="a8"]')).toHaveAttribute("aria-label", /white knight/);
+    await side.context.close();
+  });
 });
 
 test.describe("layout", () => {
@@ -127,7 +147,73 @@ test.describe("layout", () => {
   }
 });
 
+test.describe("the new-game panel", () => {
+  // On a short board (a phone, a chat-app window, a phone on its side) the panel used to be taller than the board
+  // allowed, so Invite hid under the panel's bottom edge and showed only after a scroll inside it.
+  for (const [width, height] of [[320, 568], [375, 568], [320, 480], [560, 640], [844, 390], [640, 360]] as const) {
+    test(`at ${width}x${height} it shows every control, Invite included, without a scroll`, async ({ browser }) => {
+      const sides = new Map<string, Side>();
+      const contextOptions = { viewport: { width, height } };
+      const ana = await openSide(browser, { name: "ana", sides, contextOptions });
+      const bob = await openSide(browser, { name: "bob", sides, contextOptions });
+      await expect(ana.frame.locator(".setup .invite-btn")).toBeEnabled();
+      const fit = await ana.frame.evaluate(() => {
+        const card = document.querySelector<HTMLElement>(".setup")!;
+        const box = card.getBoundingClientRect();
+        const outside = [...card.querySelectorAll("button")].filter((b) => {
+          const r = b.getBoundingClientRect();
+          return r.top < box.top || r.bottom > box.bottom;
+        });
+        return {
+          hidden: card.scrollHeight - card.clientHeight,
+          outside: outside.map((b) => b.textContent),
+          top: box.top,
+          bottom: box.bottom,
+          smallest: Math.min(...[...card.querySelectorAll("button")].map((b) => b.getBoundingClientRect().height)),
+          // A preset's words keep one line on a narrow board, and fit inside it.
+          clipped: [...card.querySelectorAll(".preset")].filter((b) => b.scrollWidth > b.clientWidth).map((b) => b.textContent),
+        };
+      });
+      expect(fit.hidden).toBeLessThanOrEqual(0);
+      expect(fit.outside).toEqual([]);
+      expect(fit.top).toBeGreaterThanOrEqual(0);
+      expect(fit.bottom).toBeLessThanOrEqual(height);
+      expect(fit.smallest).toBeGreaterThanOrEqual(24);
+      expect(fit.clipped).toEqual([]);
+      await ana.context.close();
+      await bob.context.close();
+    });
+  }
+});
+
 test.describe("a board that keeps its size", () => {
+  test("a selected piece's move dots and capture rings leave every square the size it was", async ({ browser }) => {
+    // Playwright 1.64's WebKit laid a square out as wide as the board once its move dot (an absolute ::after) showed,
+    // and pushed the rest of the rank off the board: e4 could no longer be clicked.
+    const side = await openSide(browser, { name: "solo", inChat: false, contextOptions: { viewport: { width: 560, height: 640 } } });
+    const page = side.page;
+    await expect(page.locator(".status")).toHaveText("White to move");
+    const squares = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".sq")].map((s) => {
+      const r = s.getBoundingClientRect();
+      return { square: s.dataset.square, x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+    }));
+    const start = await squares();
+    // 1. e4 d5, each square checked while its move dots show; then white's pawn has a move dot on e5 and a capture ring on d5.
+    for (const [from, to] of [["e2", "e4"], ["d7", "d5"]] as const) {
+      await page.locator(`[data-square="${from}"]`).click();
+      await expect(page.locator(`[data-square="${to}"]`)).toHaveClass(/\btarget\b/);
+      expect(await squares(), `with ${from}'s move dots`).toEqual(start);
+      await page.locator(`[data-square="${to}"]`).click();
+    }
+    await page.locator('[data-square="e4"]').click();
+    await expect(page.locator('[data-square="e5"]')).toHaveClass(/\btarget\b/);
+    await expect(page.locator('[data-square="d5"]')).toHaveClass(/\bcapture\b/);
+    expect(await squares()).toEqual(start);
+    await page.locator('[data-square="d5"]').click();
+    await expect(page.locator('[data-square="d5"]')).toHaveText(/♟/);
+    await side.context.close();
+  });
+
   for (const [width, height] of [[320, 568], [560, 640]] as const) {
     test(`in a chat at ${width}x${height}, the first move, a draw offer and a notice leave the board as it was`, async ({ browser }) => {
       const { white, black, sides } = await chatPair(browser, "top", { viewport: { width, height } });

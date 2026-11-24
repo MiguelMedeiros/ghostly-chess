@@ -328,6 +328,31 @@ describe("promotion", () => {
     expect(document.activeElement).toBe(sq(root, "e7"));
   });
 
+  it("a finger's tap that opens the picker does not pick the queen under it", async () => {
+    const { white, black } = await startChat();
+    await play({ white, black }, ...TO_PROMOTION);
+    const root = mount(white);
+    const before = white.broker.sent.length;
+    sq(root, "e7").click();
+    // A tap on e8: the picker opens on its press, and a touch's click goes to what is under the finger once it is
+    // released (Chromium), which is now the queen standing on e8.
+    pointer(sq(root, "e8"), "pointerdown");
+    pointer(sq(root, "e8"), "pointerup");
+    const queen = root.querySelector<HTMLButtonElement>('.promo-choice[data-promote="q"]')!;
+    pointerClick(queen);
+    await settle(white, black);
+    expect(root.querySelector(".promo")).not.toBeNull();
+    expect(white.broker.sent.length).toBe(before);
+    // A second tap, on the knight, picks it.
+    const knight = root.querySelector<HTMLButtonElement>('.promo-choice[data-promote="n"]')!;
+    pointer(knight, "pointerdown");
+    pointer(knight, "pointerup");
+    pointerClick(knight);
+    await settle(white, black);
+    expect(root.querySelector(".promo")).toBeNull();
+    expect(moves(white).at(-1)?.m).toBe("e7e8n");
+  });
+
   it("with auto-queen on, sends e7e8q and shows no picker", async () => {
     const { white, black } = await startChat();
     await play({ white, black }, ...TO_PROMOTION);

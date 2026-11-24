@@ -628,6 +628,14 @@ export class Board {
       this.closePromotion(true);
     });
     const column = el("div", `promo-col ${down ? "down" : "up"}`);
+    // The picker opens on the press that reached the square, and the queen stands on that square: a touch's click,
+    // sent where the finger was released, would pick it. A pointer's click counts only after a press on the picker;
+    // a click no pointer made (detail 0: Enter, Space, assistive tech) always counts.
+    let pressed = false;
+    column.addEventListener("pointerdown", () => (pressed = true));
+    const pick = (e: MouseEvent, then: () => void) => {
+      if (e.detail === 0 || pressed) then();
+    };
     column.style.left = `${col * 12.5}%`;
     if (down) column.style.top = "0";
     else column.style.bottom = "0";
@@ -642,7 +650,7 @@ export class Board {
         text.setAttribute("aria-hidden", "true");
         b.append(text);
       } else b.append(pieceSvg(`${colour}${p}`));
-      b.addEventListener("click", () => this.choose(p));
+      b.addEventListener("click", (e) => pick(e, () => this.choose(p)));
       return b;
     });
     if (!down) buttons.reverse();
@@ -650,7 +658,7 @@ export class Board {
     cancel.type = "button";
     cancel.textContent = "×";
     cancel.setAttribute("aria-label", this.t.cancel);
-    cancel.addEventListener("click", () => this.closePromotion(true));
+    cancel.addEventListener("click", (e) => pick(e, () => this.closePromotion(true)));
     if (down) column.append(...buttons, cancel);
     else column.append(cancel, ...buttons);
     overlay.append(shade, column);

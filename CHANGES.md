@@ -11,6 +11,19 @@ What each published version of Chess changed, newest first. A version is publish
   shows a past position ("Chessboard, reviewing move 3 of 4"). Enter, Space or a click on the reviewed board says
   why no move is made there and how to get back to the game. A king in check has "in check" in its square's name, not
   only its red glow. In all 8 languages.
+- On a phone, a tap on the pawn and a tap on the last rank open the promotion picker, and it stays open. Before, the
+  second tap also picked the queen, which opens right under the finger, so a pawn moved with taps always became a queen.
+- With a contact on Chess 1.0.2 (or a build without takebacks, such as 2.0 or 2.1), a draw they accept as you make
+  your next move now ends the game agreed on both sides, at the move you offered on: your move is taken back. Before,
+  they saw the draw, and you kept playing with "bad message" notices, also after a reconnect. Only an accept that can
+  have crossed your move counts (a few seconds, and only until their side shows it has the move), and a move that
+  ended the game, such as a mate, is never taken back: then the two games differ. A draw they decline that
+  way no longer shows a notice. When they offer and you accept as they move, the two games still end apart: only their
+  side can take that move back.
+- A new game invited right after a resignation, while the connection comes back, now starts in step on both sides.
+  Before, the inviter could read "Your games differ. Start a new one?" on the new game while the contact was playing
+  it: a late sync of the game just given up was taken as the contact's current game. Such a sync is now answered with
+  the new game, also after a reload.
 
 ## 2.3.1 (sequence 5)
 
