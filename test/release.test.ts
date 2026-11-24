@@ -10,6 +10,7 @@ import { digestOf, expected, listing, problems, PUBLISHER, readManifest, SOURCE,
 const root = join(import.meta.dirname, "..");
 const source = JSON.parse(readFileSync(join(root, "ghostly-app.json"), "utf8")) as Record<string, unknown>;
 const page = new TextEncoder().encode("<!doctype html><title>Chess</title>");
+const icon = readFileSync(join(root, "assets/icon.png"));
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("base64url");
 
 /** The manifest `ghostly app publish` would sign for this checkout, were `page` its build. */
@@ -18,7 +19,10 @@ const signed = (changes: Record<string, unknown> = {}): BundleManifest => ({
   ghostlyApp: 1,
   publisher: PUBLISHER,
   sequence: 4,
-  files: [{ path: "index.html", size: page.length, sha256: sha256(page) }],
+  files: [
+    { path: "icon.png", size: icon.length, sha256: sha256(icon) },
+    { path: "index.html", size: page.length, sha256: sha256(page) },
+  ],
   ...changes,
 });
 
@@ -69,11 +73,13 @@ describe("a signed bundle's manifest", () => {
     expect(problems(signed(), source, page)).toEqual([]);
   });
 
-  it("is refused under another key, with another page, another file, or a field ghostly-app.json does not say", () => {
+  it("is refused under another key, with another page or icon, another file, or a field ghostly-app.json does not say", () => {
     expect(problems(signed({ publisher: "y".repeat(52) }), source, page)).toEqual([expect.stringContaining("another publisher key")]);
-    expect(problems(signed(), source, new TextEncoder().encode("another build"))).toEqual([expect.stringContaining("is not this build's")]);
-    const two = [...signed().files, { path: "notes.txt", size: 1, sha256: "x" }];
-    expect(problems(signed({ files: two }), source, page)).toEqual([expect.stringContaining("not index.html alone")]);
+    expect(problems(signed(), source, new TextEncoder().encode("another build"))).toEqual([expect.stringMatching(/^its index.html .* is not this build's/)]);
+    expect(problems(signed(), source, page, new TextEncoder().encode("another icon"))).toEqual([expect.stringMatching(/^its icon.png .* is not this build's/)]);
+    const three = [...signed().files, { path: "notes.txt", size: 1, sha256: "x" }];
+    expect(problems(signed({ files: three }), source, page)).toEqual([expect.stringContaining("not icon.png and index.html")]);
+    expect(problems(signed({ files: signed().files.slice(1) }), source, page)).toEqual([expect.stringContaining("not icon.png and index.html")]);
     expect(problems(signed({ version: "2.2.0" }), source, page)).toEqual([expect.stringContaining('version is "2.2.0"')]);
     expect(problems(signed({ permissions: ["chat", "name", "internet"] }), source, page)).toEqual([expect.stringContaining("permissions is")]);
     expect(problems(signed({ proofs: [] }), source, page)).toEqual([expect.stringContaining("proofs is []")]);

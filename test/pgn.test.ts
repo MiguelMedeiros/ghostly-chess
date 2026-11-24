@@ -69,8 +69,8 @@ describe("PGN", () => {
     const bob = new ChessController(b, { now: () => at });
     await ana.start();
     await bob.start();
-    await new Promise((r) => setTimeout(r, 20));
-    await Promise.all([ana.settled(), bob.settled()]);
+    // Until the toss's frames are all in, not a fixed 20 ms: on a busy machine the toss takes longer.
+    await settle({ broker: a, game: ana }, { broker: b, game: bob });
     expect(ana.startDate()).toBe("2026.10.08");
     expect((JSON.parse(a.stored.get("game")!) as SavedGame).sd).toBe("2026.10.08");
     expect(tags(pgnOfGame(ana)).Date).toBe("2026.10.08");

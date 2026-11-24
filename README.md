@@ -81,6 +81,7 @@ the same commit always gives the same bytes, so a build can be checked against a
 | `src/pgn.ts` | The game as PGN |
 | `src/names.ts` | Players' names: what is sent and shown, and the initials disc (cleaning is in `src/protocol.ts`) |
 | `src/sound.ts` | Sounds synthesized with Web Audio, started by the first click, pointerup or keydown (not Escape or a modifier) |
+| `assets/icon.png` | The icon, drawn by `scripts/icon.mjs` (`npm run gen:icon`); `test/icon.test.ts` holds the two equal |
 | `assets/openings/` | The opening names from lichess-org/chess-openings (CC0-1.0), its legal text, and the one-line notice that ships |
 | `scripts/openings.mjs` | `npm run gen:openings`: the TSVs as a table of named positions (fails on a hash collision) |
 | `assets/pieces/cburnett/` | The 12 piece SVGs from Wikimedia Commons and their BSD-3-Clause license |

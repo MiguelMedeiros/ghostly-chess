@@ -17,7 +17,7 @@ and is checked by CI; "Sign" and the store's index are the owner's steps.
 | Chess's reference | `odcgw6wjw8dynqop84r47jbjcdqossbgrfiejd367e14hgxmjcho/chess` |
 | Publisher key file (owner's machine only) | `~/ghostly-keys/chess-publisher.key` |
 | Store folder | `apps/chess.odcgw6wjw8dynqop/` |
-| Published so far | 1.0.0 (sequence 1), 1.0.1 (2), 1.0.2 (3). See [CHANGES.md](../CHANGES.md) |
+| Published so far | 1.0.0 (sequence 1), 1.0.1 (2), 1.0.2 (3), 2.3.0 (4). See [CHANGES.md](../CHANGES.md) |
 
 ## 1. Prepare the version (a pull request)
 
@@ -49,7 +49,7 @@ git switch main && git pull && git status --short     # nothing listed
 npm ci && npm test && npm run build
 npm run digest                    # the page's size and SHA-256
 npm run check:bundle -- --expect 4    # the digest the signed bundle will have under sequence 4
-npm run stage                     # release/index.html + release/ghostly-app.json
+npm run stage                     # release/index.html, release/icon.png, release/ghostly-app.json
 ```
 
 The build is reproducible: the same commit gives the same bytes on any machine, so the digest `npm run digest`
@@ -87,8 +87,8 @@ Check, before going on:
 
 - `ghostly app verify` says `"valid": true`, `"ref": "odcgw6wjw8dynqop84r47jbjcdqossbgrfiejd367e14hgxmjcho/chess"`,
   the version, and `"sequence": 4`. Its `"digest"` is the one `npm run check:bundle -- --expect 4` printed in step 2.
-- `npm run check:bundle` says the bundle is this checkout's build under the Chess publisher key: its one file is
-  `dist/index.html` byte for byte, and its manifest says what `ghostly-app.json` says. It does not check the
+- `npm run check:bundle` says the bundle is this checkout's build under the Chess publisher key: its files are
+  `assets/icon.png` (as `icon.png`) and `dist/index.html`, byte for byte, and its manifest says what `ghostly-app.json` says. It does not check the
   signature; `ghostly app verify` did.
 - `publish` did not say `"keyCreated": true`. If it did, the key file's path was wrong and a new key was made:
   delete that new file and the bundle, and sign again with the right path.

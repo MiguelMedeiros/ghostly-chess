@@ -116,6 +116,8 @@ export const en = {
   why_aborted: "aborted",
   why_disputed: "clocks disagree",
   noResult: "No result",
+  /** How a game ended, under the board: "You win: checkmate". */
+  ended: "{head}: {why}",
   notice_declined: "Your contact declined the invitation.",
   setupTitle: "New game",
   setupHint: "The toss decides who plays white.",
@@ -153,6 +155,7 @@ export const en = {
   peerAsksTakeback: "Your contact asks to take back a move",
   takenBack: "Move taken back",
   notice_takebackDeclined: "Your contact declined the takeback.",
+  notice_drawDeclined: "Your contact declined the draw.",
   rematch: "Rematch",
   resignAsk: "Resign this game?",
   abort: "Abort",

@@ -3,6 +3,7 @@
 // The board on screen: a chessboard is never mirrored, whatever the language's direction.
 import { afterEach, describe, expect, it } from "vitest";
 import { ChessController } from "../src/game.ts";
+import { fr } from "../src/languages.ts";
 import { en } from "../src/strings.ts";
 import { mountChess } from "../src/ui.ts";
 import { MockBroker } from "./mockBroker.ts";
@@ -100,6 +101,15 @@ describe("resign", () => {
     expect(root.querySelector(".over-reason")!.textContent).toBe("Aborted");
   });
 
+  it("says how the game ended in French with a no-break space before the colon", async () => {
+    const sides = await startChat();
+    const root = mount(sides.black, { ...en, ...fr });
+    await play(sides, "e2e4");
+    root.querySelector<HTMLButtonElement>(".actions .abort-btn")!.click();
+    await settle(sides.white, sides.black);
+    expect(root.querySelector(".status")!.textContent).toBe("Pas de résultat\u00a0: annulée");
+  });
+
   it("stays Resign before ply 2 with Chess 1.0.2", async () => {
     const sides = await startChat("1.0.2");
     const root = mount(sides.white);
@@ -169,6 +179,20 @@ describe("draw offers on the page", () => {
     // Black moves instead of answering: the offer lapses, and the ½ goes.
     await play(sides, "b8c6");
     for (const root of [w, b]) expect(root.querySelector(".san.draw")).toBeNull();
+  });
+
+  it("tell the offerer, politely, when the contact declines", async () => {
+    const sides = await startChat();
+    await play(sides, "e2e4", "e7e5");
+    const w = mount(sides.white);
+    const b = mount(sides.black);
+    await sides.black.game.offerDraw();
+    await settle(sides.white, sides.black);
+    w.querySelector<HTMLButtonElement>(".offer-card button:not(.primary)")!.click();
+    await settle(sides.white, sides.black);
+    expect(b.querySelector(".notice.info")!.textContent).toBe("Your contact declined the draw.");
+    expect(b.querySelector(".actions .draw-btn")!.textContent).toBe(en.offerDraw);
+    expect(w.querySelector(".notice.info")?.textContent ?? "").toBe("");
   });
 });
 
