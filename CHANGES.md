@@ -9,6 +9,17 @@ What each published version of Chess changed, newest first. A version is publish
 - The PGN of a timed game numbers a black move again after the clock comment before it ("2. Nf3 {[%clk 0:04:58]}
   2... Nc6"), and its movetext lines stay under 80 characters, as the standard's export format has them. Before, a
   line could reach 80 and every black move from move 2 followed a comment without its number.
+- With a contact on Chess 1.0.2 (or a build without takebacks, such as 2.0 or 2.1), a draw they accept as you make
+  your next move now ends the game agreed on both sides, at the move you offered on: your move is taken back. Before,
+  they saw the draw, and you kept playing with "bad message" notices, also after a reconnect. Only an accept that can
+  have crossed your move counts (a few seconds, and only until their side shows it has the move), and a move that
+  ended the game, such as a mate, is never taken back: then the two games differ. A draw they decline that
+  way no longer shows a notice. When they offer and you accept as they move, the two games still end apart: only their
+  side can take that move back.
+- A new game invited right after a resignation, while the connection comes back, now starts in step on both sides.
+  Before, the inviter could read "Your games differ. Start a new one?" on the new game while the contact was playing
+  it: a late sync of the game just given up was taken as the contact's current game. Such a sync is now answered with
+  the new game, also after a reload.
 
 ## 2.3.1 (sequence 5)
 
