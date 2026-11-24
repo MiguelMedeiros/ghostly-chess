@@ -98,7 +98,7 @@ the same commit always gives the same bytes, so a build can be checked against a
 | `app.ghostlyapp` | The signed bundle of the published version, once one is signed from here (see [docs/PUBLISHING.md](docs/PUBLISHING.md)) |
 | `scripts/stage.mjs`, `scripts/bundle.mjs` | `npm run stage`: the folder `ghostly app publish` signs. `npm run check:bundle`: whether a signed bundle is this checkout's build, the digest it will have, and the store's listing for it |
 | `test/browser/release.spec.ts` | The release smoke: a timed game drawn by agreement, its PGN, a rematch won by checkmate, in the sandboxed frame |
-| `CHANGES.md`, `docs/PUBLISHING.md` | What each published version changed, and how a version is published |
+| `CHANGES.md`, `changes/`, `docs/PUBLISHING.md` | What each published version changed (a pull request adds a file to `changes/`, never to CHANGES.md), and how a version is published |
 | `vite.config.ts` | The single-file build, with the license notices of what it bundles |
 
 ## Older versions
