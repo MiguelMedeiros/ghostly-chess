@@ -96,6 +96,26 @@ test.describe("taps", () => {
     }
     for (const side of sides) await side.context.close();
   });
+
+  test("a finger's tap to the last rank opens the picker, and a tap on the knight picks it", async ({ browser, browserName }) => {
+    const side = await openSide(browser, { name: "solo", inChat: false, contextOptions: { viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: browserName === "chromium" } });
+    // 1.a4 b5 2.axb5 a6 3.bxa6 Bb7 4.axb7 Nc6: white's pawn on b7 takes on a8.
+    for (const [from, to] of [["a2", "a4"], ["b7", "b5"], ["a4", "b5"], ["a7", "a6"], ["b5", "a6"], ["c8", "b7"], ["a6", "b7"], ["b8", "c6"]]) {
+      await side.frame.locator(`[data-square="${from}"]`).click();
+      await side.frame.locator(`[data-square="${to}"]`).click();
+    }
+    const tap = async (box: { x: number; y: number; width: number; height: number } | null) => side.page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await tap(await side.frame.locator('[data-square="b7"]').boundingBox());
+    await tap(await side.frame.locator('[data-square="a8"]').boundingBox());
+    // The queen opens under the finger: the tap's own click does not pick it.
+    await expect(side.frame.locator(".promo")).toBeVisible();
+    await side.page.waitForTimeout(300);
+    await expect(side.frame.locator(".promo")).toBeVisible();
+    await tap(await side.frame.locator('[data-promote="n"]').boundingBox());
+    await expect(side.frame.locator(".promo")).toHaveCount(0);
+    await expect(side.frame.locator('[data-square="a8"]')).toHaveAttribute("aria-label", /white knight/);
+    await side.context.close();
+  });
 });
 
 test.describe("layout", () => {

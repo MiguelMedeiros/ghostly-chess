@@ -6,6 +6,8 @@ What each published version of Chess changed, newest first. A version is publish
 
 ## Unreleased
 
+- On a phone, a tap on the pawn and a tap on the last rank open the promotion picker, and it stays open. Before, the
+  second tap also picked the queen, which opens right under the finger, so a pawn moved with taps always became a queen.
 - With a contact on Chess 1.0.2 (or a build without takebacks, such as 2.0 or 2.1), a draw they accept as you make
   your next move now ends the game agreed on both sides, at the move you offered on: your move is taken back. Before,
   they saw the draw, and you kept playing with "bad message" notices, also after a reconnect. Only an accept that can
