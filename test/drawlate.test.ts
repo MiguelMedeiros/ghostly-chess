@@ -1,8 +1,8 @@
 // covers: apps.chess
 // An accept of our draw offer that our own next move cleared (dl), with a contact that names no takeback, that comes
 // when it can no longer have crossed that move: after the move ended the game on the board, past the crossing window,
-// or after a frame of the contact's showed it holds the move. The move stands. Crossing accepts are in
-// drawcross.test.ts. On the virtual-clock link (test/link.ts).
+// or after a frame of the contact's (an ack, a sync, its own offer) showed it holds the move. The move stands.
+// Crossing accepts are in drawcross.test.ts. On the virtual-clock link (test/link.ts).
 import type { Square } from "chess.js";
 import { describe, expect, it, vi } from "vitest";
 import type { Feature } from "../src/protocol.ts";
@@ -123,6 +123,25 @@ describe("an accept of our offer that our move cleared, when it can no longer ha
     const now = record(p.now) as unknown as { g: string; s: [string, string]; m: string[] };
     p.link.a.inject({ p: "chess", v: 2, k: "sync", g: now.g, s: [now.s[1], now.s[0]], m: now.m.join(" ") });
     await p.link.advance(100, 10);
+    expect("dl" in record(p.now)).toBe(false);
+    await lateAccept(p, moves.length, 0);
+    expect(p.now.game.view().phase).toBe("playing");
+    expect(record(p.now).m).toHaveLength(moves.length + 1);
+  });
+
+  it("keeps a move the contact's own draw offer shows it holds, also within the window", async () => {
+    const p = await pair(["clock"]);
+    const { moves, next } = opening(p, false);
+    await play(p, ...moves);
+    await p.now.game.offerDraw();
+    await p.link.advance(1000, 10);
+    await p.now.game.move(...next);
+    await p.link.advance(500, 10);
+    // The contact offers at the ply after our move: it holds the move, so the offer that move cleared is gone.
+    await p.old.game.offerDraw();
+    await p.link.advance(100, 10);
+    expect(p.link.b.kinds("draw")).toContainEqual(expect.objectContaining({ o: "offer", n: moves.length + 1 }));
+    expect(p.now.game.view().drawOffer).toBe("peer");
     expect("dl" in record(p.now)).toBe(false);
     await lateAccept(p, moves.length, 0);
     expect(p.now.game.view().phase).toBe("playing");

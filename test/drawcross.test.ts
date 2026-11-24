@@ -154,6 +154,30 @@ describe("a draw accept that crosses the offerer's next move, with a contact tha
     expect(now.notices).toEqual([]);
   });
 
+  it("ends the same when the move goes in the reconnect's sync: the window starts with that sync", async () => {
+    const p = await pair("2.1.0", ["clock"]);
+    const { moves, next } = opening(p);
+    await play(p, ...moves);
+    await p.now.game.offerDraw();
+    await p.link.advance(100, 10);
+    expect(p.old.game.view().drawOffer).toBe("peer");
+    // The link is down: our move does not go out, and the contact, which still sees the offer, accepts it.
+    const sent = p.link.a.sent.length;
+    p.link.hold(true);
+    expect(await p.now.game.move(...next)).toBe(true);
+    await p.old.game.answerDraw(true);
+    expect(p.link.a.sent.length).toBe(sent);
+    p.link.hold(false);
+    // The reconnect: our sync carries the move, and the contact's (agreed at the offer's ply) crosses it.
+    await p.link.reconnect();
+    await p.link.advance(3000, 10);
+    for (const side of [p.now, p.old]) {
+      expect(side.game.view().end, side.name).toEqual(AGREED);
+      expect(record(side).m, side.name).toEqual(moves);
+      expect(side.notices.filter((n) => n !== "send-failed"), side.name).toEqual([]);
+    }
+  });
+
   it("takes a decline that crossed the move as nothing: no notice, the game goes on", async () => {
     const p = await pair("2.1.0", ["clock"]);
     const { moves, next } = opening(p);
