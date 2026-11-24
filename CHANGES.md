@@ -6,6 +6,9 @@ What each published version of Chess changed, newest first. A version is publish
 
 ## Unreleased
 
+- The PGN of a timed game numbers a black move again after the clock comment before it ("2. Nf3 {[%clk 0:04:58]}
+  2... Nc6"), and its movetext lines stay under 80 characters, as the standard's export format has them. Before, a
+  line could reach 80 and every black move from move 2 followed a comment without its number.
 - With a contact on Chess 1.0.2 (or a build without takebacks, such as 2.0 or 2.1), a draw they accept as you make
   your next move now ends the game agreed on both sides, at the move you offered on: your move is taken back. Before,
   they saw the draw, and you kept playing with "bad message" notices, also after a reconnect. Only an accept that can

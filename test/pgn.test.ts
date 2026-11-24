@@ -51,11 +51,13 @@ describe("PGN", () => {
     expect(pgnOfGame(game(undefined))).toContain('[White "?"]\n[Black "?"]');
   });
 
-  it("wraps the movetext at 80 columns without breaking a token", () => {
+  it("wraps the movetext in lines under 80 characters without breaking a token", () => {
     const tokens = Array.from({ length: 60 }, (_, i) => (i % 3 === 0 ? `${i / 3 + 1}.` : "Nxf7+"));
     const text = wrap(tokens);
-    expect(text.split("\n").every((line) => line.length <= 80)).toBe(true);
+    expect(text.split("\n").every((line) => line.length < 80)).toBe(true);
     expect(text.split(/\s+/)).toEqual(tokens);
+    // Nine tokens of 8 make a line of exactly 80: the ninth goes to the next line (the standard's section 8.2.2.3).
+    expect(wrap(Array.from({ length: 9 }, () => "abcdefgh")).split("\n").map((line) => line.length)).toEqual([71, 8]);
   });
 
   it("dates a game from its start date, and a game migrated from 1.0.2 '????.??.??'", async () => {
