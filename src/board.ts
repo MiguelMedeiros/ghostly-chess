@@ -112,11 +112,13 @@ export class Board {
   private side = 0;
   private readonly offs: (() => void)[] = [];
 
+  /** `idle` hears of a click, Enter or Space on a board that takes no move now (the page says why, when it can). */
   constructor(
     private readonly game: BoardGame,
     private readonly t: Strings,
     private readonly store: PrefsStore,
     private readonly premove?: Premove,
+    private readonly idle?: () => void,
   ) {
     this.prefs = store.get();
     this.view = game.view();
@@ -216,6 +218,11 @@ export class Board {
     if (previous >= 0 && view.plies === previous + 1 && view.lastMove && view.plies !== this.noSlide) this.slide(view.lastMove);
   }
 
+  /** The grid's accessible name: "Chessboard", or what it shows while reviewing. */
+  name(text: string): void {
+    if (this.grid.getAttribute("aria-label") !== text) this.grid.setAttribute("aria-label", text);
+  }
+
   destroy(): void {
     for (const off of this.offs.splice(0)) off();
     this.endDrag();
@@ -284,7 +291,8 @@ export class Board {
       if (last) classes.push("last");
       const pre = Boolean(queued && (queued.from === square || queued.to === square));
       if (pre) classes.push("premove");
-      if (view.inCheck && piece?.type === "k" && piece.color === view.turn) classes.push("check");
+      const check = view.inCheck && piece?.type === "k" && piece.color === view.turn;
+      if (check) classes.push("check");
       if (square === this.dragFrom) classes.push("dragging");
       if (square === this.hover) classes.push("hover"); // last: markHover relies on it
       const parts = [square, piece ? t.piece.replace("{colour}", piece.color === "w" ? t.white : t.black).replace("{piece}", t[`piece_${piece.type}`]) : t.empty];
@@ -292,6 +300,8 @@ export class Board {
       if (target) parts.push(t.canMoveHere);
       if (last) parts.push(t.lastMove);
       if (pre) parts.push(t.premove);
+      // Check is not shown by its red glow alone.
+      if (check) parts.push(t.inCheck);
       const next: Drawn = {
         piece: key,
         set: key ? set : "",
@@ -540,7 +550,10 @@ export class Board {
     this.focus = square;
     const view = this.game.view();
     this.view = view;
-    if (!this.live(view) || this.promotion) return this.render(view);
+    if (!this.live(view) || this.promotion) {
+      if (!this.promotion) this.idle?.();
+      return this.render(view);
+    }
     if (this.selected && this.targetsOf(this.selected).some((m) => m.to === square)) return this.play(this.selected, square, false);
     this.selected = this.selected !== square && this.targetsOf(square).length ? square : null;
     // A click on a square that is not a target drops the premove.

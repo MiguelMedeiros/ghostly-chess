@@ -196,7 +196,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   // Made before the page listens to the game: it checks its cursor against each change first.
   const review = new Review(game);
   const premove = new Premove(game, () => prefs.get().premove);
-  const board = new Board(review, t, prefs, premove);
+  // A click, Enter or Space on the reviewed board says why it takes no move, and how to get back to the game.
+  const board = new Board(review, t, prefs, premove, () => review.reviewing() && announcer.say(fill(t.say_reviewLocked, { at: reviewAt(review.ply()), back: t.backToLive })));
   play.append(top, board.element, bottom);
 
   const panel = el("div", "panel");
@@ -276,6 +277,8 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   let lastAsk = "";
   let seen: Seen | null = null;
   let shownPly = -1;
+  // The ply the review showed at the last render, or -1 when live.
+  let reviewedPly = -1;
   let openingFor: { record: GameHistory; at: number; opening: Opening | undefined } | null = null;
 
   function strip(node: HTMLElement, colour: "w" | "b", view: View, record: GameHistory, at: number): void {
@@ -372,6 +375,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     if (review.reviewing() || !prefs.get().premove) premove.clear();
     board.render(shown);
     board.element.classList.toggle("reviewing", review.reviewing());
+    board.name(review.reviewing() ? fill(t.boardReviewing, { board: t.board, at: reviewAt(at) }) : t.board);
     const down = board.orientation();
     strip(bottom, down, view, record, at);
     strip(top, down === "w" ? "b" : "w", view, record, at);
@@ -408,6 +412,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     standingWords.textContent = line?.text ?? "";
     details.hidden = !line?.details;
     announce(view);
+    announceReview(record, at);
     // Sounds: a change of the live game; else a step forward of the review (no end sound for that).
     const live = soundOf(seen, view);
     if (live) sounds.play(live);
@@ -433,6 +438,27 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
     const ask = view.phase === "playing" ? (view.takeback === "peer" ? t.peerAsksTakeback : view.drawOffer === "peer" ? t.peerOffersDraw : "") : "";
     if (ask && ask !== lastAsk) announcer.say(ask);
     lastAsk = ask;
+  }
+
+  /** Where the review is, in words: "move 3 of 4", or "the starting position". */
+  function reviewAt(at: number): string {
+    return at ? fill(t.reviewAt, { n: at, total: game.view().plies }) : t.reviewStart;
+  }
+
+  /**
+   * Each step of the review is said, once: "Reviewing move 3 of 4, White: knight to f3"; and "Back to the game" when it
+   * ends. Not when focus is in the move list: the move focused there reads itself.
+   */
+  function announceReview(record: GameHistory, at: number): void {
+    const now = review.reviewing() ? at : -1;
+    if (now === reviewedPly) return;
+    const was = reviewedPly;
+    reviewedPly = now;
+    if (now < 0) return void (was >= 0 && announcer.say(t.say_live));
+    if (moves.element.contains(document.activeElement)) return;
+    const ply = record.plies[at - 1];
+    const words = fill(t.say_review, { at: reviewAt(at) });
+    announcer.say(ply ? `${words}, ${moveWords(ply, ply.colour === "w" ? t.whiteName : t.blackName, t, ply.check, ply.mate)}` : words);
   }
 
   /** How the game ended, from this side: "You won: checkmate". */

@@ -161,6 +161,19 @@ export const en = {
   abort: "Abort",
   set_premove: "Allow premoves",
   premove: "premove",
+  /** In the name of the square of a king in check: "e8, black king, in check". */
+  inCheck: "in check",
+  /** Where the review is: a ply of the game (1 is white's first move) of all its plies so far. */
+  reviewAt: "move {n} of {total}",
+  reviewStart: "the starting position",
+  /** The board's name while it shows a past position: "Chessboard, reviewing move 3 of 4". */
+  boardReviewing: "{board}, reviewing {at}",
+  /** Read at each step of the review, before the move shown: "Reviewing move 3 of 4, White: knight to f3". */
+  say_review: "Reviewing {at}",
+  /** Read when the review returns to the live game. */
+  say_live: "Back to the game",
+  /** Read on a click, Enter or Space on the board while reviewing. {back} is the Back to live button's name. */
+  say_reviewLocked: "Reviewing {at}: no move here. Press {back} to play",
 };
 
 export type Strings = typeof en;

@@ -6,6 +6,11 @@ What each published version of Chess changed, newest first. A version is publish
 
 ## Unreleased
 
+- Reviewing the game is spoken. Each step of the review (‹ › « », the arrow, Page and Home/End keys) is read
+  ("Reviewing move 3 of 4, White: knight to f3"), and its end too ("Back to the game"). The board's name says that it
+  shows a past position ("Chessboard, reviewing move 3 of 4"). Enter, Space or a click on the reviewed board says
+  why no move is made there and how to get back to the game. A king in check has "in check" in its square's name, not
+  only its red glow. In all 8 languages.
 - On a phone, a tap on the pawn and a tap on the last rank open the promotion picker, and it stays open. Before, the
   second tap also picked the queen, which opens right under the finger, so a pawn moved with taps always became a queen.
 - With a contact on Chess 1.0.2 (or a build without takebacks, such as 2.0 or 2.1), a draw they accept as you make
