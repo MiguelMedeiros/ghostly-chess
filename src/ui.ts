@@ -275,6 +275,7 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   let lastEnd = "";
   let lastInvitation = "";
   let lastAsk = "";
+  let lastStart = "";
   let seen: Seen | null = null;
   let shownPly = -1;
   // The ply the review showed at the last render, or -1 when live.
@@ -422,6 +423,13 @@ export function mountChess(root: HTMLElement, game: ChessController, t: Strings,
   }
 
   function announce(view: View): void {
+    // A game that starts (or a game in progress that opens): its colour and whose move it is, shown only by the lines
+    // under the board and in the status, which have no role of their own.
+    const start = view.phase === "playing" && view.me ? view.me : "";
+    if (start && start !== lastStart) {
+      announcer.say(`${start === "w" ? t.youAreWhite : t.youAreBlack}. ${view.me === view.turn ? t.yourMove : t.theirMove}`);
+    }
+    lastStart = start;
     if (lastPlies >= 0 && view.plies === lastPlies + 1 && view.lastMove) {
       const who = view.phase === "alone" ? (view.lastMove.colour === "w" ? t.whiteName : t.blackName) : view.lastMove.colour === view.me ? t.you : (view.peerName ?? t.contact);
       announcer.say(sayMove(view.lastMove, who, view, t));

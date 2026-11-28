@@ -112,6 +112,23 @@ describe("the cards on the page", () => {
     expect(bobRoot.querySelector(".board")!.contains(document.activeElement)).toBe(true);
   });
 
+  it("says aloud on both sides that the game started: the colour each plays and whose move it is", async () => {
+    const [a, b] = chatPair();
+    const ana = await open(a);
+    const bob = await open(b);
+    const anaRoot = mount(ana);
+    const bobRoot = mount(bob);
+    await settle(ana, bob);
+    anaRoot.querySelector<HTMLButtonElement>(".setup .invite-btn")!.click();
+    await settle(ana, bob);
+    bobRoot.querySelector<HTMLButtonElement>(".invitation .accept-invite")!.click();
+    await settle(ana, bob);
+    const said = [anaRoot, bobRoot].map((root) => root.querySelector(".announce")!.textContent);
+    const white = anaRoot.querySelector(".side")!.textContent === "You play white" ? 0 : 1;
+    expect(said[white]).toBe("You play white. Your move");
+    expect(said[1 - white]).toBe("You play black. Their move");
+  });
+
   it("keeps a timed invitation's card with Accept off and the reason, and Decline on, when the contact names no clock", async () => {
     const [a, b] = chatPair();
     const ana = await open(a);

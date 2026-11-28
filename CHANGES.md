@@ -6,6 +6,9 @@ What each published version of Chess changed, newest first. A version is publish
 
 ## Unreleased
 
+- A game that starts is spoken: a screen reader says the colour you play and whose move it is ("You play white. Your
+  move"), at a first game, a rematch and when a game in progress opens. Before, nothing was said, so a player who got
+  white waited for a move that was theirs to make. In all 8 languages.
 - Reviewing the game is spoken. Each step of the review (‹ › « », the arrow, Page and Home/End keys) is read
   ("Reviewing move 3 of 4, White: knight to f3"), and its end too ("Back to the game"). The board's name says that it
   shows a past position ("Chessboard, reviewing move 3 of 4"). Enter, Space or a click on the reviewed board says
